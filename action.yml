@@ -1,0 +1,66 @@
+name: 'prompt-audit'
+description: 'AI 层安全审计与门禁 —— 扫 system prompt / MCP 配置 / 工具描述里的提示注入与危险权限，粘性评论 + fail-on 门禁'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  github-token:
+    description: '用于发布/更新粘性评论（默认工作流的 GITHUB_TOKEN）'
+    required: false
+    default: ${{ github.token }}
+  fail-on:
+    description: '门禁等级：high | medium | low | info'
+    required: false
+    default: 'high'
+  path:
+    description: '扫描根目录（缺省仓库根）'
+    required: false
+    default: '.'
+  pr-number:
+    description: 'PR 编号（缺省从 pull_request 事件上下文推断）'
+    required: false
+  ignore:
+    description: '忽略的规则 id（空格分隔）'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 拉取 prompt-audit 源码
+      uses: actions/checkout@v4
+      with:
+        repository: Croesus-K/prompt-audit
+        path: .prompt-audit-src
+
+    - name: 准备 Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: 构建 CLI
+      run: cd .prompt-audit-src && npm ci && npm run build
+      shell: bash
+
+    - name: 扫描 AI 资产并发布粘性评论
+      run: |
+        IGNORE_FLAGS=""
+        for rule in $IGNORE; do IGNORE_FLAGS="$IGNORE_FLAGS --ignore $rule"; done
+        PR_FLAGS=""
+        if [ -n "$PR_NUMBER" ]; then PR_FLAGS="--pr $PR_NUMBER"; fi
+        node .prompt-audit-src/dist/cli.js pr-comment "$PATH_ARG" --fail-on "$FAIL_ON" --summary --annotations $PR_FLAGS $IGNORE_FLAGS
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        PATH_ARG: ${{ inputs.path }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        IGNORE: ${{ inputs.ignore }}
+
+    - name: 追加 Job Summary
+      if: always()
+      run: |
+        if [ -f .prompt-audit-summary.md ]; then
+          cat .prompt-audit-summary.md >> "${GITHUB_STEP_SUMMARY}"
+        fi
+      shell: bash

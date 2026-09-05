@@ -1,0 +1,158 @@
+/**
+ * GitHub REST 交互（零依赖 fetch 封装）——形态照搬 bounty-guard/src/github.ts：
+ * 粘性评论（分页查找带标记的历史评论，找到则更新）、Actions 告警标注、
+ * PR 编号解析。fetch 可注入以便测试；所有请求带确定性超时。
+ */
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+export interface GithubContext {
+  token: string;
+  /** 仓库 slug：owner/name */
+  repo: string;
+  /** fetch 注入点（测试用）；缺省用全局 fetch */
+  fetchImpl?: typeof fetch;
+  /** 单次 API 请求超时（毫秒），默认 30 秒 */
+  timeoutMs?: number;
+}
+
+/** 粘性评论标记：跨页查找的唯一锚点 */
+export const COMMENT_MARKER = "<!-- prompt-audit-report -->";
+
+async function request(ctx: GithubContext, url: string, init: RequestInit = {}): Promise<Response> {
+  const timeoutMs = ctx.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`GitHub API 请求超时（${timeoutMs}ms）`));
+    }, timeoutMs);
+  });
+  try {
+    const pending = (ctx.fetchImpl ?? fetch)(url, { ...init, signal: controller.signal });
+    pending.catch(() => {}); // 防 timeout 赢得竞速后出现未处理拒绝
+    return (await Promise.race([pending, timeout])) as Response;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function assertOk(path: string, res: Response): Promise<void> {
+  if (res.ok) return;
+  let body = "";
+  try {
+    body = await res.text();
+  } catch {
+    body = "";
+  }
+  const hint = res.status === 403 ? "（常见原因：令牌权限不足或触发限流）" : "";
+  throw new Error(`GitHub API ${path} 失败：HTTP ${res.status}${hint}${body ? `：${body.slice(0, 200)}` : ""}`);
+}
+
+async function githubJson<T>(ctx: GithubContext, url: string, init: RequestInit = {}): Promise<T> {
+  const res = await request(ctx, url, init);
+  const path = url.replace("https://api.github.com", "");
+  await assertOk(path, res);
+  return (await res.json()) as T;
+}
+
+/** 校验并拆分 owner/name——URL 只允许由合法标识构成，杜绝路径被拼出预期范围 */
+export function parseRepoSlug(repo: string): { owner: string; name: string } {
+  const m = repo.match(/^([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\/([A-Za-z0-9._-]+)$/);
+  if (!m) throw new Error(`仓库标识无效：${repo}（应为 owner/name 形式）`);
+  return { owner: m[1], name: m[2] };
+}
+
+function assertPrNumber(prNumber: number): number {
+  if (!Number.isInteger(prNumber) || prNumber <= 0) throw new Error(`PR 编号无效：${prNumber}`);
+  return prNumber;
+}
+
+function repoApiUrl(ctx: GithubContext, sub: string): string {
+  const { owner, name } = parseRepoSlug(ctx.repo);
+  return new URL(
+    `repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}${sub}`,
+    "https://api.github.com",
+  ).toString();
+}
+
+interface IssueComment {
+  id: number;
+  body?: string;
+}
+
+/** 粘性评论：跨页查找带标记的历史评论，找到则更新，找不到才新建（重复扫描不刷屏） */
+export async function upsertStickyComment(
+  ctx: GithubContext,
+  prNumber: number,
+  body: string,
+  marker: string = COMMENT_MARKER,
+): Promise<"created" | "updated"> {
+  const pr = assertPrNumber(prNumber);
+  const base = repoApiUrl(ctx, `/issues/${pr}`);
+  let page = 1;
+  let existing: IssueComment | undefined;
+  for (;;) {
+    const comments = await githubJson<IssueComment[]>(ctx, `${base}/comments?per_page=100&page=${page}`);
+    if (!Array.isArray(comments) || comments.length === 0) break;
+    existing = comments.find((c) => typeof c.body === "string" && c.body.includes(marker));
+    if (existing || comments.length < 100 || page >= 10) break;
+    page++;
+  }
+  if (existing) {
+    await githubJson(ctx, `${base}/comments/${existing.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ body }),
+    });
+    return "updated";
+  }
+  await githubJson(ctx, `${base}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
+  return "created";
+}
+
+/** 每步标注上限：GitHub 仅接受 10 条 error + 10 条 warning，超出部分被静默丢弃 */
+const ANNOTATION_CAP = 10;
+
+/** 生成 Actions 告警标注（高危 error，其余 warning）。溢出时保留汇总条目。 */
+export function toAnnotations(findings: FindingLike[]): string[] {
+  const lines: string[] = [];
+  const emit = (list: FindingLike[], level: "error" | "warning", scope: string) => {
+    const head = list.slice(0, ANNOTATION_CAP - 1);
+    const dropped = list.length - head.length;
+    for (const f of head) {
+      lines.push(`::${level} file=${f.file},line=${f.line}::[${f.severity}] ${f.ruleId}：${f.message}`);
+    }
+    if (dropped > 0) {
+      lines.push(`::${level} title=prompt-audit::另有 ${dropped} 条${scope}告警未展示，完整列表见 PR 评论`);
+    }
+  };
+  emit(findings.filter((f) => f.severity === "high"), "error", "高危");
+  emit(findings.filter((f) => f.severity !== "high"), "warning", "中低危");
+  return lines;
+}
+
+export interface FindingLike {
+  ruleId: string;
+  severity: string;
+  file: string;
+  line: number;
+  message: string;
+}
+
+/** 解析 PR 编号：显式参数 → GITHUB_PR_NUMBER → GITHUB_REF。
+ * 不读取 GITHUB_EVENT_PATH 事件文件（env 提供的路径一律不做 fs 操作）。 */
+export function resolvePrNumber(explicit?: string): number | undefined {
+  if (explicit) {
+    const n = Number(explicit);
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  const envNumber = Number(process.env.GITHUB_PR_NUMBER);
+  if (Number.isInteger(envNumber) && envNumber > 0) return envNumber;
+  const fromRef = (process.env.GITHUB_REF ?? "").match(/^refs\/pull\/(\d+)\/merge$/);
+  if (fromRef) return Number(fromRef[1]);
+  return undefined;
+}

@@ -32,6 +32,7 @@ InjectArena 攻防双榜产生的真实 payload 回流为 prompt-audit 的回归
 - [ ] **M1 · CLI**：`npx prompt-audit scan --git`，AI 资产规则包（8–10 条种子规则，见 [docs/PLAN.md](docs/PLAN.md)）
   - 已落地：`scan --git`（diff 驱动，只报新增行）、`export-corpus` 子命令（审→攻语料导出，RFC-0001 v2 格式）、`mcp-drift` 指纹基线规则（7 条规则，38 测试）
 - [ ] **M2 · GitHub Action**：粘性评论 + `--fail-on high` 门禁
+  - 已落地（本地）：`pr-comment` 子命令（粘性评论/标注/降级门禁）+ `action.yml` 复合 Action（bounty-guard 同款形态）+ `scan --fail-on`；靶场 PR 演示待仓库发布后跑通
 - [ ] **M3 · 回归门禁**：拦截率基线 JSON + diff 驱动语料子集 + NDJSON 流式进度
 - [ ] **M4 · 语料回流**：InjectArena 双榜 payload 自动回流语料库（每周定时）
 
