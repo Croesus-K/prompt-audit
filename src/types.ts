@@ -65,4 +65,12 @@ export interface ScanResult {
   findings: Finding[];
   /** 被显式忽略的规则 id（--ignore） */
   ignoredRules: string[];
+  /** --git 模式信息（diff 驱动：只报新增行） */
+  git?: {
+    changedFiles: string[];
+    /** 整文件视为新增的未跟踪文件 */
+    untracked: string[];
+    /** 被行级过滤掉的告警数 */
+    filteredFindings: number;
+  };
 }

@@ -3,10 +3,16 @@ import { join, relative, extname, basename } from "node:path";
 import type { Asset, AssetKind, Finding, Rule, ScanResult } from "./types.js";
 import { extractFromJson, extractFromMarkdown } from "./extract.js";
 import { RULES, checkMcpShadow, sortFindings } from "./rules/index.js";
+import { checkMcpDrift, loadBaseline } from "./rules/mcp-drift.js";
+import { readGitChanges, isOnAddedLines } from "./gitscan.js";
 
 export interface ScanOptions {
   /** 忽略的规则 id（--ignore，可重复） */
   ignoredRules?: string[];
+  /** mcp-drift：工具描述指纹基线文件（不存在则视为首次运行，不告警） */
+  baselineFile?: string;
+  /** diff 驱动：只保留落在 git 新增行上的告警 */
+  git?: boolean;
 }
 
 const JSON_SKIP = new Set(["node_modules", ".git", "dist", "out", ".venv"]);
@@ -48,23 +54,42 @@ export function scan(root: string, opts: ScanOptions = {}): ScanResult {
       findings.push(...rule.check(asset));
     }
   }
+  const shadowResult: ScanResult = { root: absRoot, filesScanned, assets, findings: [], ignoredRules: [...ignored] };
   if (!ignored.has("mcp-shadow")) {
-    checkMcpShadow(findings, { root: absRoot, filesScanned, assets, findings: [], ignoredRules: [...ignored] });
+    checkMcpShadow(findings, shadowResult);
+  }
+  if (!ignored.has("mcp-drift") && opts.baselineFile) {
+    const baseline = loadBaseline(opts.baselineFile);
+    if (baseline) findings.push(...checkMcpDrift(shadowResult, baseline));
   }
 
-  return {
+  const result: ScanResult = {
     root: absRoot,
     filesScanned: filesScanned.sort(),
     assets,
     findings: sortFindings(findings),
     ignoredRules: [...ignored],
   };
+
+  if (opts.git) {
+    const changes = readGitChanges(absRoot);
+    const before = result.findings.length;
+    result.findings = result.findings.filter((f) => isOnAddedLines(changes, f.file, f.line));
+    result.git = {
+      changedFiles: changes.files.sort(),
+      untracked: [...changes.untracked].sort(),
+      filteredFindings: before - result.findings.length,
+    };
+  }
+  return result;
 }
 
 function walk(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
-    if (JSON_SKIP.has(entry)) continue;
+    // 隐藏目录（.git/.tmp/.venv…）与构建产物不进扫描面——M0 dogfood 实测扫描产物
+    // JSON（.tmp/*.json）会被形状识别误当资产
+    if (JSON_SKIP.has(entry) || entry.startsWith(".")) continue;
     const full = join(dir, entry);
     const st = statSync(full);
     if (st.isDirectory()) out.push(...walk(full));
@@ -91,5 +116,5 @@ function dirnameOf(p: string): string {
   return idx > 0 ? p.slice(0, idx) : ".";
 }
 
-export const ALL_RULE_IDS = [...RULES.map((r) => r.id), "mcp-shadow"];
+export const ALL_RULE_IDS = [...RULES.map((r) => r.id), "mcp-shadow", "mcp-drift"];
 export type { AssetKind };
