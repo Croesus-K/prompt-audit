@@ -1,0 +1,43 @@
+{
+  "name": "prompt-audit",
+  "version": "0.0.1",
+  "description": "AI-layer security audit — scan system prompts, MCP configs & tool descriptions for prompt injection and toxic permissions; diff-driven prompt regression gate. AI 层安全审计与门禁：提示注入扫描 / MCP 安全 / prompt 回归测试",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "prompt-audit": "./dist/cli.js"
+  },
+  "keywords": [
+    "prompt-injection",
+    "prompt-security",
+    "prompt-audit",
+    "mcp",
+    "mcp-security",
+    "llm-security",
+    "ai-security",
+    "agent-security",
+    "security-scanner",
+    "github-action"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run lint && npm test && npm run build"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}
