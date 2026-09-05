@@ -10,6 +10,14 @@
   "bin": {
     "prompt-audit": "./dist/cli.js"
   },
+  "homepage": "https://github.com/Croesus-K/prompt-audit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Croesus-K/prompt-audit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Croesus-K/prompt-audit/issues"
+  },
   "keywords": [
     "prompt-injection",
     "prompt-security",
