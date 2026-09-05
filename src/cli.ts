@@ -1,5 +1,6 @@
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { resolve, join } from "node:path";
 import { scan, ALL_RULE_IDS } from "./scanner.js";
 import { renderJson, renderMarkdown } from "./report.js";
 import { exportCorpus } from "./corpus.js";
@@ -7,6 +8,10 @@ import { writeBaseline } from "./rules/mcp-drift.js";
 import { renderPrComment, gateExit } from "./pr-comment.js";
 import { upsertStickyComment, toAnnotations, resolvePrNumber } from "./github.js";
 import type { Severity } from "./types.js";
+import {
+  runRegression, compareBaseline, loadBaselineFile, mergeBaseline, levelFilesFromChanges, loadLevel,
+} from "./regression.js";
+import { createOpenAICompatible, createScriptedLlm, TokenBucketLimiter, withRateLimit } from "./llm.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -19,6 +24,7 @@ const USAGE = `prompt-audit —— AI 层安全审计（提示注入扫描 / MCP
   prompt-audit scan <path...> [选项]
   prompt-audit export-corpus <path...> [选项]
   prompt-audit pr-comment [path] [选项]     GitHub Action 内：粘性评论 + 门禁
+  prompt-audit regression <repoRoot> [选项] M3 回归门禁：改守阵者 prompt 先过注入回归
   prompt-audit list-rules
 
 scan 选项：
@@ -39,6 +45,23 @@ pr-comment 选项（GitHub Action 用；无令牌时优雅降级为纯门禁）�
   --pr <number>        PR 编号（缺省从 GITHUB_REF 推断）
   --summary            写 Job Summary 暂存文件 .prompt-audit-summary.md
   --annotations        输出 Actions 告警标注（::error / ::warning）
+
+regression 选项（成本闸：试考小样 + 条数上限 + 令牌桶限流；LLM 为真调用）：
+  --level <file|auto>  关卡文件（auto = 从 git 变更推导，默认）
+  --corpus <dir>       语料目录（缺省 <repoRoot>/corpus）
+  --defense <file>     布防插槽内容（缺省空 = 关卡自身 systemPrompt 即防线）
+  --reject-marker <s>  提供后附带良性请求集算误杀率
+  --corpus-version <s> 基线里的语料版本标识（默认 unversioned）
+  --provider <kind>    script（默认，本地/CI 零成本演示）| http（BYOK 真调用）
+  --script <file>      脚本回复 JSON 数组（provider=script）
+  --base-url/--api-key/--model  http provider 配置（env: PROMPT_AUDIT_LLM_* → INJECTARENA_*）
+  --sample <n>         试考条数小样先行
+  --max-payloads <n>   单次条数上限（默认 20，硬上限 50）
+  --concurrency <n>    评测并发（默认 1）
+  --baseline <file>    门禁模式：低于基线即退出码 1
+  --update-baseline <file>  写基线（只升不降；降需 --allow-lower）
+  --allow-lower        显式允许把基线跑低（审计留痕）
+  --ndjson             NDJSON 流式进度（result / surface / report）
 
 规则：${ALL_RULE_IDS.join(", ")}`;
 
@@ -134,6 +157,127 @@ async function main(): Promise<number> {
       else emit(renderMarkdown(r, { title: r.root }), args.out);
     }
     return failOn ? gateExit(results.flatMap((r) => r.findings), failOn) : 0;
+  }
+
+  if (cmd === "regression") {
+    const args: CommonArgs = { paths: [], ignore: [], json: false, md: false };
+    const o: Record<string, string | number | boolean | undefined> = {};
+    for (let i = 0; i < rest.length; i++) {
+      const a = rest[i];
+      const val = () => rest[++i];
+      switch (a) {
+        case "--level": o.level = val(); break;
+        case "--corpus": o.corpus = val(); break;
+        case "--defense": o.defense = val(); break;
+        case "--reject-marker": o.rejectMarker = val(); break;
+        case "--corpus-version": o.corpusVersion = val(); break;
+        case "--provider": o.provider = val(); break;
+        case "--script": o.script = val(); break;
+        case "--base-url": o.baseUrl = val(); break;
+        case "--api-key": o.apiKey = val(); break;
+        case "--model": o.model = val(); break;
+        case "--sample": o.sample = Number(val()); break;
+        case "--max-payloads": o.maxPayloads = Number(val()); break;
+        case "--concurrency": o.concurrency = Number(val()); break;
+        case "--rate-capacity": o.rateCapacity = Number(val()); break;
+        case "--rate-refill": o.rateRefill = Number(val()); break;
+        case "--baseline": o.baseline = val(); break;
+        case "--update-baseline": o.updateBaseline = val(); break;
+        case "--allow-lower": o.allowLower = true; break;
+        case "--ndjson": o.ndjson = true; break;
+        case "--out": args.out = val(); break;
+        default:
+          if (a.startsWith("--")) throw new Error(`未知选项：${a}`);
+          args.paths.push(a);
+      }
+    }
+    const repoRoot = resolve(args.paths[0] ?? ".");
+
+    // LLM 供给：script（零成本）| http（BYOK 真调用，env 回退 PROMPT_AUDIT_LLM_* → INJECTARENA_*）
+    let llm;
+    if ((o.provider ?? "script") === "script") {
+      const scriptFile = o.script as string | undefined;
+      if (!scriptFile) throw new Error("provider=script 需要 --script <file>（JSON 数组的回复脚本）");
+      llm = createScriptedLlm(JSON.parse(readFileSync(scriptFile, "utf8")) as string[]);
+    } else {
+      const env = (k: string) => process.env[k];
+      const baseUrl = (o.baseUrl as string) ?? env("PROMPT_AUDIT_LLM_BASE_URL") ?? env("INJECTARENA_BASE_URL");
+      const apiKey = (o.apiKey as string) ?? env("PROMPT_AUDIT_LLM_API_KEY") ?? env("INJECTARENA_API_KEY");
+      const model = (o.model as string) ?? env("PROMPT_AUDIT_LLM_MODEL") ?? env("INJECTARENA_MODEL");
+      const limiter = new TokenBucketLimiter({ capacity: Number(o.rateCapacity ?? 10), refillPerMinute: Number(o.rateRefill ?? 10) });
+      llm = withRateLimit(createOpenAICompatible({ baseUrl: baseUrl ?? "", apiKey: apiKey ?? "", model: model ?? "" }), limiter);
+    }
+
+    // 关卡来源：显式 --level 或 auto（git 变更推导）
+    let levelFiles: string[] = [];
+    if (o.level && o.level !== "auto") {
+      const lv = String(o.level);
+      levelFiles = [resolve(repoRoot, lv)]; // 相对路径按 repoRoot 解析
+    } else {
+      levelFiles = levelFilesFromChanges(repoRoot);
+      if (levelFiles.length === 0) {
+        console.error("未发现变更中的关卡文件（levels/*.json 或 corpus/*.json）；用 --level <file> 显式指定");
+        return 2;
+      }
+    }
+    const defenseFile = o.defense as string | undefined;
+    const defensePrompt = defenseFile ? readFileSync(defenseFile, "utf8") : undefined;
+
+    const onProgress = o.ndjson ? (line: Record<string, unknown>) => console.log(JSON.stringify(line)) : undefined;
+    try {
+      const { reports } = await runRegression({
+        levelFiles,
+        corpusDir: (o.corpus as string) ?? join(repoRoot, "corpus"),
+        llm,
+        defensePrompt,
+        rejectMarker: o.rejectMarker as string | undefined,
+        corpusVersion: o.corpusVersion as string | undefined,
+        sample: o.sample as number | undefined,
+        maxPayloads: o.maxPayloads as number | undefined,
+        concurrency: o.concurrency as number | undefined,
+        onProgress,
+      });
+
+      // 基线：门禁（低于基线 → 1）与更新（只升不降，降需 --allow-lower）
+      let violations: ReturnType<typeof compareBaseline> = [];
+      const baselineFile = o.baseline as string | undefined;
+      const updateFile = o.updateBaseline as string | undefined;
+      if (baselineFile) {
+        const baseline = loadBaselineFile(baselineFile);
+        if (baseline) violations = compareBaseline(reports, baseline);
+        else console.error(`基线文件不存在（${baselineFile}）——本次仅出报告；用 --update-baseline 首建`);
+      }
+      if (updateFile) {
+        const { baseline, lowered } = mergeBaseline(loadBaselineFile(updateFile), reports, {
+          corpusVersion: (o.corpusVersion as string) ?? "unversioned",
+          allowLower: Boolean(o.allowLower),
+        });
+        if (lowered.length > 0 && !o.allowLower) {
+          for (const v of lowered) {
+            console.error(`拒绝把基线跑低：${v.attackSurface} ${v.baselineBlockRate} → ${v.currentBlockRate}；确认后加 --allow-lower`);
+          }
+          return 1;
+        }
+        writeFileSync(updateFile, JSON.stringify(baseline, null, 2) + "\n", "utf8");
+        console.error(`基线已写入 ${updateFile}（${baseline.entries.length} 个攻击面）`);
+      }
+
+      const summary = { tool: `prompt-audit@${version}`, kind: "regression-report", reports, violations };
+      if (o.ndjson) console.log(JSON.stringify({ type: "report", ...summary }));
+      else emit(JSON.stringify(summary, null, 2), args.out);
+
+      for (const r of reports) {
+        const fp = r.benign ? ` · 误杀 ${r.benign.falsePositives}/${r.benign.evaluated}` : "";
+        console.error(`${r.levelId}（${r.attackSurface}，${r.payloadCount} 条）：拦截率 ${(r.attack.blockRate * 100).toFixed(1)}%${fp}`);
+      }
+      for (const v of violations) {
+        console.error(`⛔ 门禁违规：${v.attackSurface} 拦截率 ${(v.currentBlockRate * 100).toFixed(1)}% 低于基线 ${(v.baselineBlockRate * 100).toFixed(1)}%`);
+      }
+      return violations.length > 0 ? 1 : 0;
+    } catch (err) {
+      console.error(`回归评测失败：${(err as Error).message}`);
+      return 2;
+    }
   }
 
   if (cmd === "pr-comment") {
