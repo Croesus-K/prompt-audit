@@ -32,8 +32,10 @@ async function request(ctx: GithubContext, url: string, init: RequestInit = {}):
       reject(new Error(`GitHub API 请求超时（${timeoutMs}ms）`));
     }, timeoutMs);
   });
+  // 认证统一在请求层注入（SEC/演示复盘：调用点各自带头会漏——401 "Requires authentication"）
+  const headers = { Authorization: `Bearer ${ctx.token}`, ...(init.headers ?? {}) };
   try {
-    const pending = (ctx.fetchImpl ?? fetch)(url, { ...init, signal: controller.signal });
+    const pending = (ctx.fetchImpl ?? fetch)(url, { ...init, headers, signal: controller.signal });
     pending.catch(() => {}); // 防 timeout 赢得竞速后出现未处理拒绝
     return (await Promise.race([pending, timeout])) as Response;
   } finally {
