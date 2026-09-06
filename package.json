@@ -40,7 +40,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "devDependencies": {
     "@types/node": "^20.14.0",
