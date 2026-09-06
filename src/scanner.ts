@@ -4,7 +4,7 @@ import type { Asset, AssetKind, Finding, Rule, ScanResult } from "./types.js";
 import { extractFromJson, extractFromMarkdown } from "./extract.js";
 import { RULES, checkMcpShadow, sortFindings } from "./rules/index.js";
 import { checkMcpDrift, loadBaseline } from "./rules/mcp-drift.js";
-import { readGitChanges, isOnAddedLines } from "./gitscan.js";
+import { readGitChanges, isOnAddedLines, type GitChanges } from "./gitscan.js";
 
 export interface ScanOptions {
   /** 忽略的规则 id（--ignore，可重复） */

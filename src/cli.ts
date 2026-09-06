@@ -13,6 +13,7 @@ import {
 } from "./regression.js";
 import { createOpenAICompatible, createScriptedLlm, TokenBucketLimiter, withRateLimit } from "./llm.js";
 import { fetchPrDiff, parseUnifiedDiff } from "./github.js";
+import type { GitChanges } from "./gitscan.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -310,7 +311,7 @@ async function main(): Promise<number> {
     const pr = resolvePrNumber(prNumber);
     const token = process.env.GITHUB_TOKEN;
     const repo = process.env.GITHUB_REPOSITORY;
-    let gitChanges;
+    let gitChanges: GitChanges | undefined;
     let commentAction: string | null = null;
     if (token && repo && pr) {
       const diff = await fetchPrDiff({ token, repo }, pr);

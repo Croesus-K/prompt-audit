@@ -93,12 +93,19 @@ export async function fetchPrDiff(ctx: GithubContext, prNumber: number): Promise
 }
 
 /** 解析 unified diff → 变更结构（与 gitscan 的 GitChanges 同形状）。
- * 新增文件（--- /dev/null）整文件视为新增行。 */
+ * 仅「+」行计为新增（上下文行只推进游标）；新增文件（--- /dev/null）整文件视为新增行。 */
 export function parseUnifiedDiff(diff: string): GitChanges {
   const changes: GitChanges = { files: [], untracked: new Set(), addedLines: new Map() };
   let current: string | null = null;
   let isNew = false;
+  let newLine = 0;
+  let inHunk = false;
   for (const line of diff.split("\n")) {
+    if (line.startsWith("diff --git")) {
+      current = null;
+      inHunk = false;
+      continue;
+    }
     if (line.startsWith("--- ")) {
       isNew = line.startsWith("--- /dev/null");
       continue;
@@ -114,11 +121,20 @@ export function parseUnifiedDiff(diff: string): GitChanges {
     }
     const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
     if (hunk && current) {
-      const start = Number(hunk[1]);
-      const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      inHunk = true;
+      newLine = Number(hunk[1]);
       if (!changes.addedLines.has(current)) changes.addedLines.set(current, new Set());
-      const set = changes.addedLines.get(current)!;
-      for (let i = 0; i < count; i++) set.add(start + i);
+      continue;
+    }
+    if (!inHunk || !current) continue;
+    if (line.startsWith("+")) {
+      changes.addedLines.get(current)!.add(newLine);
+      newLine += 1;
+    } else if (line.startsWith("-") || line.startsWith("\\")) {
+      // 旧文件行 / "\ No newline"：游标不动
+    } else {
+      // 上下文行：推进新文件侧游标
+      newLine += 1;
     }
   }
   return changes;
