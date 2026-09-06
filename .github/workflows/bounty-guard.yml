@@ -1,0 +1,19 @@
+name: bounty-guard
+
+# 互守闭环（方案 §三.3）：prompt-audit 自己的代码由 bounty-guard 守 diff——
+# 「写代码时 bounty-guard 守 diff」这一闸自用生效
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Croesus-K/bounty-guard@main
+        with:
+          fail-on: high
