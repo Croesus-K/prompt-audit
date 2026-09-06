@@ -1,6 +1,6 @@
 {
   "name": "prompt-audit",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "AI-layer security audit — scan system prompts, MCP configs & tool descriptions for prompt injection and toxic permissions; diff-driven prompt regression gate. AI 层安全审计与门禁：提示注入扫描 / MCP 安全 / prompt 回归测试",
   "type": "module",
   "license": "MIT",
