@@ -1,4 +1,5 @@
 import { logLine } from "./sanitize.js";
+import type { GitChanges } from "./gitscan.js";
 
 /**
  * GitHub REST 交互（零依赖 fetch 封装）——形态照搬 bounty-guard/src/github.ts：
@@ -77,6 +78,50 @@ function repoApiUrl(ctx: GithubContext, sub: string): string {
     `repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}${sub}`,
     "https://api.github.com",
   ).toString();
+}
+
+/** 读取 PR 的 unified diff（REST 原生支持）：CI 里工作树是干净的 merge ref，
+ * diff 驱动必须以「PR 相对基线的变更」为准——这是 bounty-guard 的原设计。 */
+export async function fetchPrDiff(ctx: GithubContext, prNumber: number): Promise<string> {
+  const pr = assertPrNumber(prNumber);
+  const url = repoApiUrl(ctx, `/pulls/${pr}`);
+  const res = await request(ctx, url, {
+    headers: { Authorization: `Bearer ${ctx.token}`, Accept: "application/vnd.github.diff" },
+  });
+  await assertOk(url.replace("https://api.github.com", ""), res);
+  return res.text();
+}
+
+/** 解析 unified diff → 变更结构（与 gitscan 的 GitChanges 同形状）。
+ * 新增文件（--- /dev/null）整文件视为新增行。 */
+export function parseUnifiedDiff(diff: string): GitChanges {
+  const changes: GitChanges = { files: [], untracked: new Set(), addedLines: new Map() };
+  let current: string | null = null;
+  let isNew = false;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("--- ")) {
+      isNew = line.startsWith("--- /dev/null");
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      const m = line.match(/^\+\+\+ b\/(.+)$/);
+      if (m) {
+        current = m[1].replace(/\\/g, "/");
+        if (!changes.files.includes(current)) changes.files.push(current);
+        if (isNew) changes.untracked.add(current);
+      }
+      continue;
+    }
+    const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+    if (hunk && current) {
+      const start = Number(hunk[1]);
+      const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      if (!changes.addedLines.has(current)) changes.addedLines.set(current, new Set());
+      const set = changes.addedLines.get(current)!;
+      for (let i = 0; i < count; i++) set.add(start + i);
+    }
+  }
+  return changes;
 }
 
 interface IssueComment {

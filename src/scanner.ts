@@ -13,6 +13,8 @@ export interface ScanOptions {
   baselineFile?: string;
   /** diff 驱动：只保留落在 git 新增行上的告警 */
   git?: boolean;
+  /** 预解析的变更集（CI 场景来自 PR API diff；缺省用本地 git status/diff） */
+  gitChanges?: GitChanges;
 }
 
 const JSON_SKIP = new Set(["node_modules", ".git", "dist", "out", ".venv"]);
@@ -74,7 +76,7 @@ export function scan(root: string, opts: ScanOptions = {}): ScanResult {
   };
 
   if (opts.git) {
-    const changes = readGitChanges(absRoot);
+    const changes = opts.gitChanges ?? readGitChanges(absRoot);
     const before = result.findings.length;
     result.findings = result.findings.filter((f) => isOnAddedLines(changes, f.file, f.line));
     result.git = {

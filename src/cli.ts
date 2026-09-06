@@ -12,6 +12,7 @@ import {
   runRegression, compareBaseline, loadBaselineFile, mergeBaseline, levelFilesFromChanges, loadLevel,
 } from "./regression.js";
 import { createOpenAICompatible, createScriptedLlm, TokenBucketLimiter, withRateLimit } from "./llm.js";
+import { fetchPrDiff, parseUnifiedDiff } from "./github.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -303,15 +304,25 @@ async function main(): Promise<number> {
       }
     }
     if (args.paths.length === 0) args.paths.push(".");
-    const results = args.paths.map((p) => scan(p, { ignoredRules: args.ignore, git: true }));
-    const comment = renderPrComment(results, { version: `prompt-audit@${version}`, failOn });
-    if (summary) writeFileSync(".prompt-audit-summary.md", comment + "\n", "utf8");
 
+    // PR 上下文（CI）：diff 必须以「PR 相对基线的变更」为准（API diff）——
+    // CI 检出的是干净的 merge ref，本地 git status 恒空；无 PR 上下文时降级本地 git
     const pr = resolvePrNumber(prNumber);
     const token = process.env.GITHUB_TOKEN;
     const repo = process.env.GITHUB_REPOSITORY;
+    let gitChanges;
+    let commentAction: string | null = null;
+    if (token && repo && pr) {
+      const diff = await fetchPrDiff({ token, repo }, pr);
+      gitChanges = parseUnifiedDiff(diff);
+    }
+    const results = args.paths.map((p) => scan(p, { ignoredRules: args.ignore, git: true, gitChanges }));
+    const comment = renderPrComment(results, { version: `prompt-audit@${version}`, failOn });
+    if (summary) writeFileSync(".prompt-audit-summary.md", comment + "\n", "utf8");
+
     if (token && repo && pr) {
       const action = await upsertStickyComment({ token, repo }, pr, comment);
+      commentAction = action;
       console.error(`粘性评论已${action === "created" ? "创建" : "更新"}（${repo}#${pr}）`);
     } else {
       console.error("降级：缺少 GITHUB_TOKEN / GITHUB_REPOSITORY / PR 编号，跳过评论，仅门禁与摘要生效");

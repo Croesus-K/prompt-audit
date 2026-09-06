@@ -176,3 +176,30 @@ describe("L6 形状补测（tools[].result 投毒）", () => {
     expect(results.every((a) => a.kind === "retrieved-content")).toBe(true);
   });
 });
+
+describe("PR API diff（M2 CI 缺陷修复）：parseUnifiedDiff", () => {
+  it("多文件 + 行段 + 新文件整行视为新增", async () => {
+    const { parseUnifiedDiff } = await import("../src/github.js");
+    const diff = [
+      "diff --git a/levels/L6.json b/levels/L6.json",
+      "--- a/levels/L6.json",
+      "+++ b/levels/L6.json",
+      "@@ -25,3 +25,6 @@",
+      " unchanged",
+      "+added line 26",
+      "+added line 27",
+      " unchanged",
+      "diff --git a/levels/new.json b/levels/new.json",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/levels/new.json",
+      "@@ -0,0 +1,2 @@",
+      "+brand new 1",
+      "+brand new 2",
+    ].join("\n");
+    const changes = parseUnifiedDiff(diff);
+    expect(changes.files.sort()).toEqual(["levels/L6.json", "levels/new.json"]);
+    expect(changes.addedLines.get("levels/L6.json")).toEqual(new Set([26, 27]));
+    expect(changes.untracked.has("levels/new.json")).toBe(true);
+  });
+});
