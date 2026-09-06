@@ -1,4 +1,5 @@
 import { COMMENT_MARKER } from "./github.js";
+import { mdCell } from "./sanitize.js";
 import type { Finding, ScanResult, Severity } from "./types.js";
 
 /** 门禁：存在严重度 ≥ 阈值的告警即红灯 */
@@ -39,7 +40,7 @@ export function renderPrComment(results: ScanResult[], opts: { version?: string;
     lines.push("");
     lines.push(`<details><summary>本次 diff 审查范围（${changed.length} 个文件，只报新增行）</summary>`);
     lines.push("");
-    lines.push(changed.map((f) => `\`${f}\``).join(" · "));
+    lines.push(changed.map((f) => `\`${mdCell(f, 120)}\``).join(" · "));
     lines.push("");
     lines.push("</details>");
   }
@@ -49,7 +50,7 @@ export function renderPrComment(results: ScanResult[], opts: { version?: string;
     lines.push("|---|---|---|---|");
     for (const f of findings.slice(0, PR_COMMENT_CAP)) {
       lines.push(
-        `| ${ICONS[f.severity]} ${f.severity} | \`${f.file}:${f.line}\` | \`${f.ruleId}\` | ${escapeCell(f.message)} |`,
+        `| ${ICONS[f.severity]} ${f.severity} | \`${mdCell(f.file, 120)}:${f.line}\` | \`${f.ruleId}\` | ${mdCell(f.message)} |`,
       );
     }
     if (findings.length > PR_COMMENT_CAP) {
@@ -63,6 +64,3 @@ export function renderPrComment(results: ScanResult[], opts: { version?: string;
   return lines.join("\n");
 }
 
-function escapeCell(s: string): string {
-  return s.replace(/\|/g, "\\|");
-}

@@ -139,7 +139,9 @@ export function createOpenAICompatible(config: ProviderConfig): Llm & { model: s
       const retryable = res.status === 429 || res.status >= 500;
       if (retryable && attempt <= maxRetries) {
         const header = Number(res.headers.get("retry-after"));
-        await sleep(Number.isFinite(header) && header > 0 ? header * 1000 : retryBaseMs * attempt);
+        // SEC-001：恶意/异常端点可给超大 Retry-After 挂死门禁——封顶 10 秒
+        const backoff = Number.isFinite(header) && header > 0 ? Math.min(header * 1000, 10_000) : retryBaseMs * attempt;
+        await sleep(backoff);
         continue;
       }
       if (!res.ok) {

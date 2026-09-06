@@ -58,10 +58,13 @@ export function isOnAddedLines(changes: GitChanges, file: string, line: number):
 
 function git(repo: string, args: string[]): string | null {
   try {
-    return execFileSync("git", ["-C", repo, ...args], {
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-    });
+    // -c 硬化（SEC-001）：扫描对象可能是恶意仓库，禁用 fsmonitor 类配置——
+    // 它们指向攻击者可在 .git/config 里预置的可执行命令
+    return execFileSync(
+      "git",
+      ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-C", repo, ...args],
+      { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+    );
   } catch {
     return null;
   }

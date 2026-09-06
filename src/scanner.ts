@@ -16,11 +16,13 @@ export interface ScanOptions {
 }
 
 const JSON_SKIP = new Set(["node_modules", ".git", "dist", "out", ".venv"]);
+/** 单文件大小上限（SEC-001）：资产是提示词级别的文本，超限即跳过，防超大文件拖垮内存 */
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 /** 扫描一个文件/目录，收集 AI 资产并跑规则。 */
 export function scan(root: string, opts: ScanOptions = {}): ScanResult {
   const absRoot = statSync(root).isDirectory() ? root : dirnameOf(root);
-  const files = statSync(root).isDirectory() ? walk(root) : [root];
+  const files = statSync(root).isDirectory() ? walk(root) : singleFile(root);
 
   const assets: Asset[] = [];
   const filesScanned: string[] = [];
@@ -86,16 +88,27 @@ export function scan(root: string, opts: ScanOptions = {}): ScanResult {
 
 function walk(dir: string): string[] {
   const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
+  for (const dirent of readdirSync(dir, { withFileTypes: true })) {
     // 隐藏目录（.git/.tmp/.venv…）与构建产物不进扫描面——M0 dogfood 实测扫描产物
     // JSON（.tmp/*.json）会被形状识别误当资产
-    if (JSON_SKIP.has(entry) || entry.startsWith(".")) continue;
-    const full = join(dir, entry);
-    const st = statSync(full);
-    if (st.isDirectory()) out.push(...walk(full));
-    else if (isAssetFile(entry)) out.push(full);
+    if (JSON_SKIP.has(dirent.name) || dirent.name.startsWith(".")) continue;
+    // 符号链接一律跳过（SEC-001）：链接环会让递归失控，链接目标不受仓库边界约束
+    if (dirent.isSymbolicLink()) continue;
+    const full = join(dir, dirent.name);
+    if (dirent.isDirectory()) out.push(...walk(full));
+    else if (dirent.isFile() && isAssetFile(dirent.name) && statSync(full).size <= MAX_FILE_BYTES) out.push(full);
   }
   return out;
+}
+
+function singleFile(p: string): string[] {
+  if (!isAssetFile(basename(p))) return [];
+  try {
+    if (statSync(p).size > MAX_FILE_BYTES) return [];
+  } catch {
+    return [];
+  }
+  return [p];
 }
 
 function isAssetFile(name: string): boolean {

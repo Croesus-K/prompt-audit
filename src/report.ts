@@ -1,4 +1,5 @@
 import type { ScanResult } from "./types.js";
+import { mdCell } from "./sanitize.js";
 
 export interface RenderOptions {
   /** 报告标题（如「bounty-guard」） */
@@ -43,7 +44,7 @@ export function renderMarkdown(result: ScanResult, opts: RenderOptions = {}): st
     lines.push("|---|---|---|---|---|---|");
     result.findings.forEach((f, i) => {
       lines.push(
-        `| ${i + 1} | \`${f.ruleId}\` | ${f.severity} | \`${f.file}:${f.line}\` | ${escapeCell(f.message)} | \`${escapeCell(f.evidence)}\` |`,
+        `| ${i + 1} | \`${f.ruleId}\` | ${f.severity} | \`${f.file}:${f.line}\` | ${mdCell(f.message)} | \`${mdCell(f.evidence, 80)}\` |`,
       );
     });
   }
@@ -73,8 +74,4 @@ function summarize(a: { text?: string; obj?: unknown; extra?: Record<string, unk
     return `${head}${a.text.length > 30 ? "…" : ""}（${a.text.length} 字）`;
   }
   return "";
-}
-
-function escapeCell(s: string): string {
-  return s.replace(/\|/g, "\\|");
 }

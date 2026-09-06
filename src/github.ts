@@ -1,3 +1,5 @@
+import { logLine } from "./sanitize.js";
+
 /**
  * GitHub REST 交互（零依赖 fetch 封装）——形态照搬 bounty-guard/src/github.ts：
  * 粘性评论（分页查找带标记的历史评论，找到则更新）、Actions 告警标注、
@@ -117,14 +119,17 @@ export async function upsertStickyComment(
 /** 每步标注上限：GitHub 仅接受 10 条 error + 10 条 warning，超出部分被静默丢弃 */
 const ANNOTATION_CAP = 10;
 
-/** 生成 Actions 告警标注（高危 error，其余 warning）。溢出时保留汇总条目。 */
+/** 生成 Actions 告警标注（高危 error，其余 warning）。溢出时保留汇总条目。
+ * message/file 来自不受信仓库内容（SEC-001）：过 logLine 净化，防换行伪造工作流命令。 */
 export function toAnnotations(findings: FindingLike[]): string[] {
   const lines: string[] = [];
   const emit = (list: FindingLike[], level: "error" | "warning", scope: string) => {
     const head = list.slice(0, ANNOTATION_CAP - 1);
     const dropped = list.length - head.length;
     for (const f of head) {
-      lines.push(`::${level} file=${f.file},line=${f.line}::[${f.severity}] ${f.ruleId}：${f.message}`);
+      const file = logLine(f.file, 120);
+      const message = logLine(`${f.ruleId}：${f.message}`);
+      lines.push(`::${level} file=${file},line=${f.line}::[${f.severity}] ${message}`);
     }
     if (dropped > 0) {
       lines.push(`::${level} title=prompt-audit::另有 ${dropped} 条${scope}告警未展示，完整列表见 PR 评论`);
