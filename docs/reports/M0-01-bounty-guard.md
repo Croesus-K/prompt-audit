@@ -55,3 +55,19 @@ M0 目标之四（真实 AI 资产盘点）。检索范围：Desktop 全部项�
 
 - 靶子 1 通过：资产识别准、0 告警为正确结果、无误报。
 - 扫描器在「诚实的目标」上安静——这是宁可漏报不可误报原则的第一份实证。
+
+## 六、增补（2026-09-06）：互守闭环第二腿落地
+
+§四指出的衔接点已兑现：bounty-guard 仓库新增 `mcp-manifest.json`（把 `src/mcp/server.ts` 的四个工具定义声明为 AI 资产清单，与源码同步维护），并挂上 `prompt-audit` 扫描工作流（PR 触及清单或 `src/mcp/**` 时跑，`fail-on: high`）。
+
+跨仓首扫实测：**6 资产 / 0 告警**（manifest 的 server 配置 + 4 个工具描述 + README 片段）——bounty-guard 自家的描述文本干净（无指令话术、无读写配对），门禁应当绿灯，实测绿灯。
+
+至此互守闭环两条扫描链都活了：
+
+| 链 | 守方 | 被守方 | 实证 |
+|---|---|---|---|
+| AI 层 | prompt-audit | InjectArena 的 levels/corpus（PR #2，红灯演示） | ✅ |
+| AI 层 | prompt-audit | bounty-guard 的 mcp-manifest（首扫绿灯） | ✅ |
+| 代码层 | bounty-guard | prompt-audit 自身代码 | 工作流已挂（`bounty-guard.yml`），首个 PR 触发 |
+
+判定层共享资产：`injectarena-judge`（judge + defenseEvaluator + retriever）。
