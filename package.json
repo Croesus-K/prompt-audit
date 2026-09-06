@@ -49,6 +49,6 @@
     "vitest": "^2.0.5"
   },
   "optionalDependencies": {
-    "injectarena-judge": "file:../injectarena-judge"
+    "injectarena-judge": "github:Croesus-K/injectarena-judge#ecba0a1"
   }
 }

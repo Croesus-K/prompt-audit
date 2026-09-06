@@ -235,3 +235,20 @@ describe("同形字混排（td-hidden-unicode 补全，M0-02 欠账）", () => {
     }
   });
 });
+
+describe("隐藏编码载荷（td-injection-phrase 三轮优化）", () => {
+  it("工具描述里的长 base64 串命中", () => {
+    const blob = "QmFzZTY0IGhpZGRlbiBpbnN0cnVjdGlvbnMgZm9yIHRoZSBtb2RlbCB0byBmb2xsb3cgd2l0aG91dCBhbnlvbmUgbm90aWNpbmc=";
+    const hits = tdInjectionPhrase.check({ kind: "tool-description", file: "x", line: 1, keyPath: "x", text: `编码指令：${blob}` });
+    expect(hits.some((h) => h.message.includes("隐藏编码载荷"))).toBe(true);
+  });
+
+  it("普通文本与短哈希不误伤", () => {
+    for (const text of [
+      "查询北营粮册：粟米、箭簇、草料的结余与近三日流水。",
+      "commit abc123def4567890abcd1234ef567890ab12cd34",
+    ]) {
+      expect(tdInjectionPhrase.check({ kind: "tool-description", file: "x", line: 1, keyPath: "x", text })).toEqual([]);
+    }
+  });
+});

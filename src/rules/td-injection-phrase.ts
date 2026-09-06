@@ -69,6 +69,11 @@ const PHRASES: Phrase[] = [
     re: /自称(上级|运维|管理员|审计|官方|系统)|(pretend|claim)\s+to\s+be\s+(the\s+)?(admin|operator|developer|official|system)/i,
     hint: "伪造身份是典型越狱前置话术",
   },
+  {
+    label: "隐藏编码载荷",
+    re: /[A-Za-z0-9+/]{60,}={0,2}/,
+    hint: "长 base64 串——编码是指令隐藏的经典手法（L3 变形绕过的载体），工具描述里几乎不可能是正常内容",
+  },
 ];
 
 function finding(asset: Asset, label: string, matched: string, hint: string): Finding {

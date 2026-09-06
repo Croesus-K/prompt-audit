@@ -114,3 +114,17 @@ describe("优化回归", () => {
     expect(snippets.some((s) => s.includes('"two"'))).toBe(true);
   });
 });
+
+describe("优化三轮", () => {
+  it("常见命名的 .txt 提示词进资产面；普通 txt 不进", () => {
+    expect(extractFromMarkdown("你是本阵守阵官。", "prompts/system-prompt.txt")).toHaveLength(1);
+    expect(extractFromMarkdown("随手笔记内容。", "notes.txt")).toEqual([]);
+  });
+
+  it("带 BOM 的 JSON 不再静默变零资产", () => {
+    const withBom = "\uFEFF" + JSON.stringify({ id: "L1", systemPrompt: "提示词" });
+    const assets = extractFromJson(withBom, "L1.json");
+    expect(assets).toHaveLength(1);
+    expect(assets[0].kind).toBe("system-prompt");
+  });
+});

@@ -1,7 +1,8 @@
 import type { Asset, AssetKind } from "./types.js";
 
-/** 从 JSON 文本提取 AI 资产。raw 为原始文件内容（用于行定位）。 */
-export function extractFromJson(raw: string, file: string): Asset[] {
+/** 从 JSON 文本提取 AI 资产。raw 为原始文件内容（用于行定位）；容忍 BOM。 */
+export function extractFromJson(rawInput: string, file: string): Asset[] {
+  const raw = rawInput.charCodeAt(0) === 0xfeff ? rawInput.slice(1) : rawInput;
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -14,14 +15,25 @@ export function extractFromJson(raw: string, file: string): Asset[] {
 }
 
 /**
- * 从 Markdown 提取 AI 资产：
- * - 内联或围栏代码块中含 mcpServers 的 JSON 片段 → mcp-config
+ * 从 Markdown/纯文本提取 AI 资产：
  * - AGENTS.md / CLAUDE.md 全文 → system-prompt
+ * - 常见命名的提示词 txt（system-prompt.txt / prompt.txt / agent-instructions.txt）→ system-prompt
+ * - 内联或围栏代码块中含 mcpServers 的 JSON 片段 → mcp-config
  */
 export function extractFromMarkdown(raw: string, file: string): Asset[] {
   const assets: Asset[] = [];
   const base = file.replace(/\\/g, "/").split("/").pop() ?? "";
   if (/^(AGENTS|CLAUDE)\.md$/i.test(base)) {
+    assets.push({
+      kind: "system-prompt",
+      file,
+      line: 1,
+      keyPath: "document",
+      text: raw,
+    });
+    return assets;
+  }
+  if (/^(system[-_]?prompt|prompt|agent[-_]?instructions?)\.txt$/i.test(base)) {
     assets.push({
       kind: "system-prompt",
       file,
