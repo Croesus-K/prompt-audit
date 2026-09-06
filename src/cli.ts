@@ -2,7 +2,7 @@ import { writeFileSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve, join } from "node:path";
 import { scan, ALL_RULE_IDS } from "./scanner.js";
-import { renderJson, renderMarkdown } from "./report.js";
+import { renderMarkdown } from "./report.js";
 import { exportCorpus } from "./corpus.js";
 import { writeBaseline } from "./rules/mcp-drift.js";
 import { renderPrComment, gateExit } from "./pr-comment.js";
@@ -154,10 +154,15 @@ async function main(): Promise<number> {
       for (const r of results) writeBaseline(updateBaseline, r);
       console.error(`基线已写入 ${updateBaseline}（工具描述指纹 ${results.reduce((n, r) => n + r.assets.filter((a) => a.kind === "tool-description").length, 0)} 个）`);
     }
-    for (const r of results) {
-      if (args.json) emit(renderJson(r), args.out);
-      else emit(renderMarkdown(r, { title: r.root }), args.out);
+    // 多路径 + --out：聚合为单份输出（逐个 emit 会互相覆盖，只剩最后一个）
+    let output: string;
+    if (args.json) {
+      output = JSON.stringify(results.length === 1 ? results[0] : results, null, 2);
+    } else {
+      output = results.map((r) => renderMarkdown(r, { title: r.root })).join("\n\n---\n\n");
     }
+    if (args.out) writeFileSync(args.out, output + "\n", "utf8");
+    else process.stdout.write(output + "\n");
     return failOn ? gateExit(results.flatMap((r) => r.findings), failOn) : 0;
   }
 
@@ -210,13 +215,20 @@ async function main(): Promise<number> {
       llm = withRateLimit(createOpenAICompatible({ baseUrl: baseUrl ?? "", apiKey: apiKey ?? "", model: model ?? "" }), limiter);
     }
 
-    // 关卡来源：显式 --level 或 auto（git 变更推导）
+    // 关卡来源：显式 --level 或 auto（PR 上下文用 API diff——CI 检出树干净；本地用 git status）
     let levelFiles: string[] = [];
     if (o.level && o.level !== "auto") {
       const lv = String(o.level);
       levelFiles = [resolve(repoRoot, lv)]; // 相对路径按 repoRoot 解析
     } else {
-      levelFiles = levelFilesFromChanges(repoRoot);
+      let gitChanges: GitChanges | undefined;
+      const envToken = process.env.GITHUB_TOKEN;
+      const envRepo = process.env.GITHUB_REPOSITORY;
+      const envPr = resolvePrNumber();
+      if (envToken && envRepo && envPr) {
+        gitChanges = parseUnifiedDiff(await fetchPrDiff({ token: envToken, repo: envRepo }, envPr));
+      }
+      levelFiles = levelFilesFromChanges(repoRoot, gitChanges);
       if (levelFiles.length === 0) {
         console.error("未发现变更中的关卡文件（levels/*.json 或 corpus/*.json）；用 --level <file> 显式指定");
         return 2;

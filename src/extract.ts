@@ -194,15 +194,26 @@ function locateLine(lines: string[], needle: string): number {
   return at >= 0 ? at + 1 : 0;
 }
 
-/** 从 md 原文中抠出含 targetKey 的平衡 JSON 片段（支持内联与围栏代码块）。 */
+/** 从 md 原文中抠出含 targetKey 的平衡 JSON 片段（支持内联与围栏代码块）。
+ * 多块文档逐块提取（去重）——单个 README 可能给出多个 mcpServers 示例。 */
 export function extractJsonSnippets(raw: string, targetKey: string): string[] {
   const snippets: string[] = [];
-  const keyAt = raw.indexOf(`"${targetKey}"`);
-  if (keyAt < 0) return snippets;
-  const open = raw.lastIndexOf("{", keyAt);
-  if (open < 0) return snippets;
-  const end = balancedEnd(raw, open);
-  if (end > open) snippets.push(raw.slice(open, end + 1));
+  const seen = new Set<string>();
+  let from = 0;
+  for (;;) {
+    const keyAt = raw.indexOf(`"${targetKey}"`, from);
+    if (keyAt < 0) break;
+    from = keyAt + 1;
+    const open = raw.lastIndexOf("{", keyAt);
+    if (open < 0) continue;
+    const end = balancedEnd(raw, open);
+    if (end <= open) continue;
+    const snippet = raw.slice(open, end + 1);
+    if (!seen.has(snippet)) {
+      seen.add(snippet);
+      snippets.push(snippet);
+    }
+  }
   return snippets;
 }
 

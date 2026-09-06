@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import type { Llm } from "./llm.js";
-import { readGitChanges } from "./gitscan.js";
+import { readGitChanges, type GitChanges } from "./gitscan.js";
 
 /**
  * M3 · prompt 回归门禁（形态 B 的引擎侧）。
@@ -127,15 +127,16 @@ export const BENIGN_PROBES: { id: string; text: string }[] = [
 
 // ── diff → 攻击面映射 ──
 
-/** 从 git 变更推导受影响的关卡文件：levels/*.json 改动 → 该文件本身；corpus 改动 → 同攻击面的关卡 */
-export function levelFilesFromChanges(repoRoot: string): string[] {
-  const changes = readGitChanges(repoRoot);
+/** 从 git 变更推导受影响的关卡文件：levels/*.json 改动 → 该文件本身；corpus 改动 → 同攻击面的关卡。
+ * changes 可注入（CI 场景来自 PR API diff——检出树干净，本地 git status 恒空）。 */
+export function levelFilesFromChanges(repoRoot: string, changes?: GitChanges): string[] {
+  const ch = changes ?? readGitChanges(repoRoot);
   const levelsDir = join(repoRoot, "levels");
   const corpusDir = join(repoRoot, "corpus");
   const files = new Set<string>();
   const changedSurfaces = new Set<string>();
 
-  for (const f of changes.files.concat([...changes.untracked])) {
+  for (const f of ch.files.concat([...ch.untracked])) {
     if (f.startsWith("levels/") && f.endsWith(".json") && existsSync(join(repoRoot, f))) {
       files.add(join(repoRoot, f).replace(/\\/g, "/"));
     }

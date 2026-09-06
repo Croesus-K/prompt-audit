@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { extractFromJson, extractFromMarkdown } from "../src/extract.js";
+import { extractFromJson, extractFromMarkdown, extractJsonSnippets } from "../src/extract.js";
 import { scan } from "../src/scanner.js";
 
 describe("extractFromJson", () => {
@@ -94,5 +94,23 @@ describe("scan 集成", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("优化回归", () => {
+  it("extractJsonSnippets：多块 mcpServers 逐块提取（去重）", () => {
+    const raw = [
+      "# A",
+      '{ "mcpServers": { "one": { "command": "npx", "args": ["a"] } } }',
+      "正文",
+      "```json",
+      '{ "mcpServers": { "two": { "command": "node", "args": ["b"] } } }',
+      "```",
+      '{ "mcpServers": { "one": { "command": "npx", "args": ["a"] } } }',
+    ].join("\n");
+    const snippets = extractJsonSnippets(raw, "mcpServers");
+    expect(snippets).toHaveLength(2);
+    expect(snippets.some((s) => s.includes('"one"'))).toBe(true);
+    expect(snippets.some((s) => s.includes('"two"'))).toBe(true);
   });
 });

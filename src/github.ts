@@ -190,7 +190,8 @@ export function toAnnotations(findings: FindingLike[]): string[] {
     const head = list.slice(0, ANNOTATION_CAP - 1);
     const dropped = list.length - head.length;
     for (const f of head) {
-      const file = logLine(f.file, 120);
+      // file= 参数按逗号分参数——文件名里的逗号以 %2C 保位（罕见路径，显示退化但参数结构不破）
+      const file = logLine(f.file, 120).replace(/,/g, "%2C");
       const message = logLine(`${f.ruleId}：${f.message}`);
       lines.push(`::${level} file=${file},line=${f.line}::[${f.severity}] ${message}`);
     }
