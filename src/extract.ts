@@ -31,18 +31,17 @@ export function extractFromMarkdown(raw: string, file: string): Asset[] {
     });
     return assets;
   }
-  for (const snippet of extractJsonSnippets(raw, "mcpServers")) {
+  for (const { snippet, keyAt } of extractJsonSnippetSpans(raw, "mcpServers")) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(snippet);
     } catch {
       continue;
     }
-    const line = locateLine(raw.split(/\r?\n/), `"mcpServers"`);
     assets.push({
       kind: "mcp-config",
       file,
-      line,
+      line: keyAt < 0 ? 0 : raw.slice(0, keyAt).split("\n").length,
       keyPath: "mcpServers",
       obj: parsed,
       text: snippet,
@@ -172,8 +171,7 @@ function resolveLines(assets: Asset[], raw: string): Asset[] {
   return assets;
 }
 
-function locateAssetLine(lines: string[], asset: Asset): number {
-  if (asset.text) {
+function locateAssetLine(lines: string[], asset: Asset): number {  if (asset.text) {
     const firstChunk = asset.text.split("\n").find((s) => s.trim().length > 0);
     if (firstChunk) {
       const needle = firstChunk.trim().slice(0, 40);
@@ -189,15 +187,9 @@ function locateAssetLine(lines: string[], asset: Asset): number {
   return 0;
 }
 
-function locateLine(lines: string[], needle: string): number {
-  const at = lines.findIndex((l) => l.includes(needle));
-  return at >= 0 ? at + 1 : 0;
-}
-
-/** 从 md 原文中抠出含 targetKey 的平衡 JSON 片段（支持内联与围栏代码块）。
- * 多块文档逐块提取（去重）——单个 README 可能给出多个 mcpServers 示例。 */
-export function extractJsonSnippets(raw: string, targetKey: string): string[] {
-  const snippets: string[] = [];
+/** 从 md 原文中抠出含 targetKey 的平衡 JSON 片段：返回片段与其在原文中的起始下标（用于行定位）。 */
+export function extractJsonSnippetSpans(raw: string, targetKey: string): { snippet: string; keyAt: number }[] {
+  const out: { snippet: string; keyAt: number }[] = [];
   const seen = new Set<string>();
   let from = 0;
   for (;;) {
@@ -211,10 +203,15 @@ export function extractJsonSnippets(raw: string, targetKey: string): string[] {
     const snippet = raw.slice(open, end + 1);
     if (!seen.has(snippet)) {
       seen.add(snippet);
-      snippets.push(snippet);
+      out.push({ snippet, keyAt });
     }
   }
-  return snippets;
+  return out;
+}
+
+/** 兼容形态：只要片段。多块文档逐块提取（去重）——单个 README 可能给出多个 mcpServers 示例。 */
+export function extractJsonSnippets(raw: string, targetKey: string): string[] {
+  return extractJsonSnippetSpans(raw, targetKey).map((s) => s.snippet);
 }
 
 /** 字符串感知的平衡花括号扫描，返回与 open 配对的闭括号下标；找不到返回 -1。 */

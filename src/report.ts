@@ -29,8 +29,13 @@ export function renderMarkdown(result: ScanResult, opts: RenderOptions = {}): st
   lines.push("");
   lines.push("| 类型 | 位置 | 路径 | 摘要 |");
   lines.push("|---|---|---|---|");
-  for (const a of result.assets) {
+  // 大仓库封顶：JSON 输出含全量，报告保持可读
+  const ASSET_CAP = 30;
+  for (const a of result.assets.slice(0, ASSET_CAP)) {
     lines.push(`| ${kindLabel(a.kind)} | \`${a.file}:${a.line}\` | \`${a.keyPath}\` | ${summarize(a)} |`);
+  }
+  if (result.assets.length > ASSET_CAP) {
+    lines.push(`| | | | …另有 ${result.assets.length - ASSET_CAP} 项资产未列出（--json 含全量） |`);
   }
   if (result.assets.length === 0) lines.push("| （无） | | | |");
   lines.push("");

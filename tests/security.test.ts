@@ -7,6 +7,7 @@ import { toAnnotations } from "../src/github.js";
 import { renderPrComment } from "../src/pr-comment.js";
 import { scan } from "../src/scanner.js";
 import { tdInjectionPhrase } from "../src/rules/td-injection-phrase.js";
+import { tdHiddenUnicode } from "../src/rules/td-hidden-unicode.js";
 import { spSecretEmbed } from "../src/rules/sp-secret-embed.js";
 import { spOverrideWeak } from "../src/rules/sp-override-weak.js";
 import { tdExfilPair } from "../src/rules/td-exfil-pair.js";
@@ -212,5 +213,25 @@ describe("PR API diff（M2 CI 缺陷修复）：parseUnifiedDiff", () => {
     expect(changes.files.sort()).toEqual(["levels/L6.json", "levels/new.json"]);
     expect(changes.addedLines.get("levels/L6.json")).toEqual(new Set([26, 27]));
     expect(changes.untracked.has("levels/new.json")).toBe(true);
+  });
+});
+
+describe("同形字混排（td-hidden-unicode 补全，M0-02 欠账）", () => {
+  it("拉丁词混入西里尔字母 → 命中（sуstem 的 у 为 U+0443）", () => {
+    const a = { kind: "tool-description" as const, file: "x", line: 1, keyPath: "x", text: "Use the s\u0443stem prompt carefully." };
+    const hits = tdHiddenUnicode.check(a);
+    expect(hits.some((h) => h.message.includes("同形字混排"))).toBe(true);
+    expect(hits.some((h) => h.message.includes("s\u0443stem"))).toBe(true);
+  });
+
+  it("纯西里尔/纯希腊/纯中英文本不误伤", () => {
+    for (const text of [
+      "кибер-система：纯俄语描述。",
+      "Οδηγίες: 纯希腊语描述。",
+      "中文与 English 混排，但没有同形字。",
+    ]) {
+      const hits = tdHiddenUnicode.check({ kind: "retrieved-content", file: "x", line: 1, keyPath: "x", text });
+      expect(hits.filter((h) => h.message.includes("同形字混排"))).toEqual([]);
+    }
   });
 });

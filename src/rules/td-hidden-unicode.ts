@@ -34,9 +34,40 @@ export const tdHiddenUnicode: Rule = {
         evidence: showAround(text, cp),
       });
     }
+    // 同形字混排（PLAN 定义内）：拉丁单词里混入西里尔/希腊字母——"sуstem" 肉眼看不出，
+    // 但既骗过字符串比对、也误导人审；纯西里尔/希腊文本（整词同文字）不误伤
+    const mixedSeen = new Set<string>();
+    for (const run of text.match(MIXED_SCRIPT_RUN) ?? []) {
+      if (!isMixedScript(run) || mixedSeen.has(run)) continue;
+      mixedSeen.add(run);
+      findings.push({
+        ruleId: "td-hidden-unicode",
+        severity: "high",
+        file: asset.file,
+        line: asset.line,
+        keyPath: asset.keyPath,
+        assetKind: asset.kind,
+        message: `同形字混排：「${run.slice(0, 24)}」——拉丁与西里尔/希腊字母同词混排（视觉伪装）`,
+        evidence: clipMixed(text, run),
+      });
+    }
     return findings;
   },
 };
+
+/** 拉丁字母与西里尔/希腊字母同词混排的词形（长度 ≥3，避免单字符噪声） */
+const MIXED_SCRIPT_RUN = /[A-Za-z\u0370-\u03ff\u0400-\u04ff]{2,}/g;
+
+function isMixedScript(run: string): boolean {
+  return /[A-Za-z]/.test(run) && /[\u0370-\u03ff\u0400-\u04ff]/.test(run);
+}
+
+function clipMixed(text: string, run: string): string {
+  const at = text.indexOf(run);
+  const start = Math.max(0, at - 15);
+  const end = Math.min(text.length, at + run.length + 15);
+  return text.slice(start, end).replace(/\r?\n/g, "⏎").slice(0, 80);
+}
 
 const HIDDEN: ReadonlyMap<number, string> = new Map([
   [0x200b, "零宽空格"],

@@ -1,0 +1,23 @@
+name: CI
+
+# 自家测试门禁：lint + 全量测试（判定/提取/规则/回归/安全五套件）
+# 判定包是 file: 可选依赖——CI 里克隆到兄弟路径，使集成测试一并运行
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: 克隆判定包到兄弟路径（file:../injectarena-judge）
+        run: git clone --depth 1 https://github.com/Croesus-K/injectarena-judge.git ../injectarena-judge
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
