@@ -95,6 +95,18 @@ function walk(node: unknown, file: string, path: string, out: Asset[]): void {
       text: obj.description,
       extra: { tool: obj.name },
     });
+    // 工具返回值（L6 形状）：工具结果会原样进入模型上下文，与 RAG 文档同属
+    // 「会被投毒的检索类内容」（InjectArena L6 复盘：描述与结果一样是模型会读的文本）
+    if (typeof obj.result === "string") {
+      out.push({
+        kind: "retrieved-content",
+        file,
+        line: 0,
+        keyPath: joinPath(path, `${obj.name}.result`),
+        text: obj.result,
+        extra: { tool: obj.name },
+      });
+    }
   }
 
   if (typeof obj.systemPrompt === "string") {
