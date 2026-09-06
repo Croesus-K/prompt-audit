@@ -34,7 +34,7 @@ InjectArena 攻防双榜产生的真实 payload 回流为 prompt-audit 的回归
 - [ ] **M2 · GitHub Action**：粘性评论 + `--fail-on high` 门禁
   - 已落地（本地）：`pr-comment` 子命令（粘性评论/标注/降级门禁）+ `action.yml` 复合 Action（bounty-guard 同款形态）+ `scan --fail-on`；靶场 PR 演示待仓库发布后跑通
 - [ ] **M3 · 回归门禁**：拦截率基线 JSON + diff 驱动语料子集 + NDJSON 流式进度
-  - 已落地（本地）：`regression` 子命令——判定包 `injectarena-judge`（judge/defenseEvaluator/retriever）显式注入、diff→攻击面映射选语料子集、成本闸（试考小样 + 条数上限 + 令牌桶）、基线治理规则 3 格式且只升不降（降需 `--allow-lower`）；「改守阵者 prompt → 门禁变色」已用脚本 LLM 本地闭环，InjectArena 真实 PR 演示待 push
+  - 已落地（本地）：`regression` 子命令——判定包 `injectarena-judge`（judge/defenseEvaluator/retriever）显式注入、diff→攻击面映射选语料子集、成本闸（试考小样 + 条数上限 + 令牌桶）、基线治理规则 3 格式且只升不降（降需 `--allow-lower`）；「改守阵者 prompt → 门禁变色」已在 InjectArena 真实 PR #2 上实弹演示（scan 门禁红灯）
 - [x] **M4 · 语料回流**：语料独立包 [`prompt-corpus-zh`](https://www.npmjs.com/package/prompt-corpus-zh) 已发布 npm（seed 116 条 / 6 攻击面）；周回流脚本就绪（只走公开接口），待靶场真实流量后跑首批人工闸
 
 ## License

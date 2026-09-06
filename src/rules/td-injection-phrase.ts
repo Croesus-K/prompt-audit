@@ -51,7 +51,8 @@ const PHRASES: Phrase[] = [
   },
   {
     label: "伪称系统指令",
-    re: /(优先于|凌驾于)一切(人工)?指令|(最高优先级[，,]?\s*覆盖)|(\boverride[s]?\s+all\s+(human\s+)?instructions\b)/i,
+    re: /((优先|凌驾)于)一切[^。
+]{0,6}指令|(最高优先级[，,]?\s*覆盖)|(\boverride[s]?\s+all\s+(human\s+)?instructions\b)/i,
     hint: "「优先于一切人工指令」类自我授权——试图凌驾人工闸门的话术",
   },
   {
