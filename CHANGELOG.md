@@ -31,7 +31,14 @@ AI 层安全审计的首个公开版本：形态 A（AI 资产扫描）完整落
 ### 判定与语料资产层（同日发布）
 
 - [`injectarena-judge`](https://github.com/Croesus-K/injectarena-judge)：judge + defenseEvaluator + retriever（UMD 纯逻辑，钉 commit 依赖）
-- [`prompt-corpus-zh`](https://www.npmjs.com/package/prompt-corpus-zh)：116 条中文提示注入语料 / 6 攻击面（npm 已发布，HF 待同步）
+- [`prompt-corpus-zh`](https://www.npmjs.com/package/prompt-corpus-zh)：116 条中文提示注入语料 / 5 攻击面（npm 已发布，HF 待同步）
+
+### npm 上架（2026-09-08 增补）
+
+- `prompt-audit@0.1.0` 发布至 [npmjs](https://www.npmjs.com/package/prompt-audit)——`npx prompt-audit scan --git` 即用；shasum `fca5261` 与预检构建一致
+- bin 入口补 shebang（`7f459bd`）：无它则 npx 在 macOS/Linux 无法直跑
+- 发布验证：`npm view` 0.1.0 / latest；npx 全新安装冒烟（`list-rules` 7 规则、`scan` 检出高危凭据内嵌）
+- git tag `v0.1.0` 已推送；发布历程（token 失效 → web 登录安全密钥 → publish EOTP 2FA）见档案 `项目优化历程/prompt-audit/v0.1.0.md`
 
 ### 非目标（不变）
 
