@@ -26,6 +26,8 @@ bounty-guard 守的是人写的代码，InjectArena 测的是 LLM 本身；**pro
 InjectArena 攻防双榜产生的真实 payload 回流为 prompt-audit 的回归语料；prompt-audit 扫出的真实投毒样本反哺 InjectArena 关卡。
 两个项目共用 `corpus/` schema，互相喂数据。
 
+**公共实例已上线**：InjectArena 部署于乌托邦站内靶场 <https://croesus-k.top/arena/>（BYOK：玩家自带 Key）——攻方榜真实 payload 经导出通道（`/api/arena/leaderboard?format=export`，FLAG 源头打码）回流；当前守方考段已在线上产生，攻方破阵 payload 尚待积累。
+
 ## Roadmap
 
 - [x] **M0 · dogfood**：扫自己的仓库——bounty-guard 的 MCP server 配置、InjectArena 五个守阵者 system prompt（`levels/*.json`），产出第一批真实告警（误报率 38.5% → 修复后 0%，报告见 [docs/reports/](docs/reports/)）
