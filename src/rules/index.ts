@@ -4,14 +4,20 @@ import { tdHiddenUnicode } from "./td-hidden-unicode.js";
 import { tdExfilPair } from "./td-exfil-pair.js";
 import { spSecretEmbed } from "./sp-secret-embed.js";
 import { spOverrideWeak } from "./sp-override-weak.js";
+import { mcpEnvCredential } from "./mcp-env-credential.js";
+import { mcpLaunchUnsafe } from "./mcp-launch-unsafe.js";
+import { spExfilInstruction } from "./sp-exfil-instruction.js";
 
-/** M0 种子规则集（6 条；mcp-drift 需基线设施，M1 再上） */
+/** 单资产规则集（10 条；mcp-drift 需基线设施、mcp-shadow 跨资产，scanner 单独跑） */
 export const RULES: Rule[] = [
   tdInjectionPhrase,
   tdHiddenUnicode,
   tdExfilPair,
   spSecretEmbed,
   spOverrideWeak,
+  mcpEnvCredential,
+  mcpLaunchUnsafe,
+  spExfilInstruction,
 ];
 
 /**

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.1（2026-09-08）
+
+M1 规则包收官：7 → 10 条，补上 mcp.json 结构化盲区。npm 上架后首个增量版本。
+
+### 新增规则（3 条）
+
+- `mcp-env-credential`（高危）——MCP server env 内嵌明文凭据。修复 v0.1.0 真实盲区：JSON 形态的 mcp-config 资产只有 obj 没有 text，文本规则对其失效；`OPENAI_API_KEY` 等 env 名不在 secret-field 键名白名单内，「真 key 写进 mcp.json 提交」此前完全漏检。判定双通道：凭据命名 env（排除 `${VAR}` 引用与占位值）+ 值命中强密钥形状（复用 sp-secret-embed 强形状表）
+- `mcp-launch-unsafe`（高危/中危）——启动参数/环境关闭安全机制：`--dangerously-skip-permissions` / `--yolo` / `--auto-approve` / `NODE_TLS_REJECT_UNAUTHORIZED=0`（高危），`--no-sandbox`（中危）；只看结构化 args/env，近零误报
+- `sp-exfil-instruction`（高危）——system prompt 指令式外发敏感上下文（把对话/用户输入/系统提示词/剪贴板/密钥发送、上传、上报到外部），中文为主 + 英文核心形状；命中所在整句含拒绝/禁止/防范类字样一律放过（M0 误报教训的句级守卫），同句多形状只出一条
+
+### 重构
+
+- sp-secret-embed 抽出强密钥形状表 `matchStrongSecretShape` 供 `mcp-env-credential` 复用（单一事实源，告警文案不变）
+
+### 验收
+
+- 测试 82 → 99（+17：三规则正反用例 + 注册断言）
+- dogfood 三靶零误报：本仓 0 / bounty-guard 0 / InjectArena 11 条全为原有规则预期告警（新规则 0 条）
+- 端到端正检：投毒 mcp.json fixture（真 key + `--dangerously-skip-permissions` + TLS 关闭）3 条高危全命中，`${GITHUB_TOKEN}` 引用正确放行
+- M1 收官：种子规则 10 条（目标 8–10），遗留清单销号 #6
+
 ## 0.1.0（2026-09-06）
 
 AI 层安全审计的首个公开版本：形态 A（AI 资产扫描）完整落地，形态 B（回归门禁）引擎就绪并实弹验收。

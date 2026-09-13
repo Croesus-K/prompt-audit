@@ -37,6 +37,28 @@ export const spSecretEmbed: Rule = {
   },
 };
 
+/** 强密钥形状（真密钥特征串，不限资产类型）：供本规则与 mcp-env-credential 共用。 */
+const STRONG_KEY_SHAPES: { re: RegExp; label: string }[] = [
+  { re: /\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}/, label: "OpenAI 风格 API key" },
+  { re: /\bgh[pousr]_[A-Za-z0-9]{30,}\b/, label: "GitHub token" },
+  { re: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/, label: "GitHub fine-grained token" },
+  { re: /\bAKIA[0-9A-Z]{16}\b/, label: "AWS Access Key ID" },
+  { re: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/, label: "Slack token" },
+  { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, label: "私钥块" },
+];
+
+/**
+ * 在任意文本中匹配强密钥形状，返回形如「OpenAI 风格 API key：sk-1a…9z」的
+ * 描述；无命中返回 null。mcp-env-credential 用它判定 env 值是否为真凭据。
+ */
+export function matchStrongSecretShape(text: string): string | null {
+  for (const s of STRONG_KEY_SHAPES) {
+    const m = text.match(s.re);
+    if (m) return `${s.label}：${mask(m[0])}`;
+  }
+  return null;
+}
+
 interface SecretPattern {
   re: RegExp;
   label: (matched: string) => string;
@@ -57,30 +79,12 @@ const SECRET_PATTERNS: SecretPattern[] = [
     label: (m) => `受控标记/flag 内嵌于提示词资产：${mask(m)}`,
     kinds: ["system-prompt", "retrieved-content", "mcp-config", "tool-description"],
   },
-  {
-    re: /\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}/,
-    label: (m) => `疑似 OpenAI 风格 API key：${mask(m)}`,
-  },
-  {
-    re: /\bgh[pousr]_[A-Za-z0-9]{30,}\b/,
-    label: (m) => `疑似 GitHub token：${mask(m)}`,
-  },
-  {
-    re: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
-    label: (m) => `疑似 GitHub fine-grained token：${mask(m)}`,
-  },
-  {
-    re: /\bAKIA[0-9A-Z]{16}\b/,
-    label: (m) => `疑似 AWS Access Key ID：${mask(m)}`,
-  },
-  {
-    re: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,
-    label: (m) => `疑似 Slack token：${mask(m)}`,
-  },
-  {
-    re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-    label: () => "私钥块内嵌于 AI 资产",
-  },
+  ...STRONG_KEY_SHAPES.map(
+    (s): SecretPattern => ({
+      re: s.re,
+      label: (m) => `疑似 ${s.label}：${mask(m)}`,
+    }),
+  ),
   {
     re: /(?:api[_-]?key|secret|token|password|passwd)\s*[:=]\s*["']?[A-Za-z0-9+/_-]{12,}/i,
     label: (m) => `疑似 key=value 形式的硬编码凭据：${mask(m)}`,

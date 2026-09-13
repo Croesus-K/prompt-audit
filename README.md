@@ -31,8 +31,8 @@ InjectArena 攻防双榜产生的真实 payload 回流为 prompt-audit 的回归
 ## Roadmap
 
 - [x] **M0 · dogfood**：扫自己的仓库——bounty-guard 的 MCP server 配置、InjectArena 五个守阵者 system prompt（`levels/*.json`），产出第一批真实告警（误报率 38.5% → 修复后 0%，报告见 [docs/reports/](docs/reports/)）
-- [ ] **M1 · CLI**：`npx prompt-audit scan --git`，AI 资产规则包（8–10 条种子规则，见 [docs/PLAN.md](docs/PLAN.md)）
-  - 已落地：`scan --git`（diff 驱动，只报新增行）、`export-corpus` 子命令（审→攻语料导出，RFC-0001 v2 格式）、`mcp-drift` 指纹基线规则（7 条规则，82 测试）；**npm 已上架（2026-09-08）**——`npx prompt-audit` 即用，规则缺口见遗留 #6
+- [x] **M1 · CLI**：`npx prompt-audit scan --git`，AI 资产规则包（8–10 条种子规则，见 [docs/PLAN.md](docs/PLAN.md)）
+  - 已落地：`scan --git`（diff 驱动，只报新增行）、`export-corpus` 子命令（审→攻语料导出，RFC-0001 v2 格式）、`mcp-drift` 指纹基线规则；**规则包 10 条收官（v0.1.1：+`mcp-env-credential` / `mcp-launch-unsafe` / `sp-exfil-instruction`），npm 已上架，99 测试全绿**
 - [ ] **M2 · GitHub Action**：粘性评论 + `--fail-on high` 门禁
   - 已落地（本地）：`pr-comment` 子命令（粘性评论/标注/降级门禁）+ `action.yml` 复合 Action（bounty-guard 同款形态）+ `scan --fail-on`；靶场 PR 演示待仓库发布后跑通
 - [ ] **M3 · 回归门禁**：拦截率基线 JSON + diff 驱动语料子集 + NDJSON 流式进度
