@@ -34,10 +34,16 @@ export const tdHiddenUnicode: Rule = {
         evidence: showAround(text, cp),
       });
     }
-    // 同形字混排（PLAN 定义内）：拉丁单词里混入西里尔/希腊字母——"sуstem" 肉眼看不出，
-    // 但既骗过字符串比对、也误导人审；纯西里尔/希腊文本（整词同文字）不误伤
+    // 同形字混排（PLAN 定义内）：拉丁单词里混入视觉等价但码点不同的字符——
+    // 「sуstem」（西里尔 у）、「systеm」（西里尔 е）、「adm𝐢n」（数学粗体 i）、
+    // 「sｙstem」（全角 y）等。肉眼看不出但既骗过字符串比对、也误导人审；
+    // 纯同文字文本（整词全西里尔 / 整词全希腊 / 整词全数学符号 / 整词全角）不误伤。
+    //
+    // 实现刻意走「for...of + 显式码点判断」而非 regex 字符类：V8 的 regex 字符类
+    // 在没有 /u 标志时做 Unicode case folding（[A-Z] 通过大小写折叠自动覆盖全角 Ａ-Ｚ），
+    // 会导致 ASCII 拉丁被误判为「同形字」，大面积误伤。显式码点比对无此副作用。
     const mixedSeen = new Set<string>();
-    for (const run of text.match(MIXED_SCRIPT_RUN) ?? []) {
+    for (const run of findLatinRuns(text)) {
       if (!isMixedScript(run) || mixedSeen.has(run)) continue;
       mixedSeen.add(run);
       findings.push({
@@ -47,7 +53,7 @@ export const tdHiddenUnicode: Rule = {
         line: asset.line,
         keyPath: asset.keyPath,
         assetKind: asset.kind,
-        message: `同形字混排：「${run.slice(0, 24)}」——拉丁与西里尔/希腊字母同词混排（视觉伪装）`,
+        message: `同形字混排：「${run.slice(0, 24)}」——ASCII 拉丁与视觉等价字符（同形字）同词混排`,
         evidence: clipMixed(text, run),
       });
     }
@@ -55,11 +61,69 @@ export const tdHiddenUnicode: Rule = {
   },
 };
 
-/** 拉丁字母与西里尔/希腊字母同词混排的词形（长度 ≥3，避免单字符噪声） */
-const MIXED_SCRIPT_RUN = /[A-Za-z\u0370-\u03ff\u0400-\u04ff]{2,}/g;
+/**
+ * 同形字字符块——视觉与 ASCII 拉丁等价但码点不同：
+ * - \u0400-\u04FF 西里尔（含 А/а/Е/е/О/о/Р/р/С/с/Т/т/Х/х 等拉丁形字母）
+ * - \u0370-\u03FF 希腊（含 Α/α/Β/β/Ε/ε/Η/η/Ι/ι/Κ/κ/Μ/μ/Ν/ν/Ο/ο/Ρ/ρ/Τ/τ/Χ/χ 等拉丁形字母）
+ * - \u1D400-\u1D7FF 数学字母数字符号（含 𝐀-𝐳 数学粗/斜/手写/等宽拉丁形式）
+ * - \uFF21-\uFF3A / \uFF41-\uFF5A 全角 ASCII 大写 / 小写字母
+ *
+ * 数字同形（0/O、1/l/Ⅰ 等）单独看无上下文字时是边缘判定，本规则暂不覆盖——避免误伤正常标识符
+ */
 
+/** 单码点是否属于「拉丁 + 同形字」字符类中的任一区块 */
+function isLatinOrHomoglyph(cp: number): boolean {
+  return (
+    (cp >= 0x41 && cp <= 0x5a) ||
+    (cp >= 0x61 && cp <= 0x7a) ||
+    (cp >= 0x0370 && cp <= 0x03ff) ||
+    (cp >= 0x0400 && cp <= 0x04ff) ||
+    (cp >= 0x1d400 && cp <= 0x1d7ff) ||
+    (cp >= 0xff21 && cp <= 0xff3a) ||
+    (cp >= 0xff41 && cp <= 0xff5a)
+  );
+}
+
+/** 从文本中提取所有「拉丁+同形字字符类」连续段（长度 ≥ 2） */
+function findLatinRuns(text: string): string[] {
+  const runs: string[] = [];
+  let buf = "";
+  for (const ch of text) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (isLatinOrHomoglyph(cp)) {
+      buf += ch;
+    } else {
+      if (buf.length >= 2) runs.push(buf);
+      buf = "";
+    }
+  }
+  if (buf.length >= 2) runs.push(buf);
+  return runs;
+}
+
+/** run 必须同时含 ASCII 拉丁与至少一个「同形字块」字符——纯 ASCII 或纯同形块都放过 */
 function isMixedScript(run: string): boolean {
-  return /[A-Za-z]/.test(run) && /[\u0370-\u03ff\u0400-\u04ff]/.test(run);
+  let hasAscii = false;
+  let hasHomoglyph = false;
+  for (const ch of run) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (!hasAscii && (cp === 0x41 || (cp >= 0x42 && cp <= 0x5a) || cp === 0x61 || (cp >= 0x62 && cp <= 0x7a))) {
+      hasAscii = true;
+      continue;
+    }
+    if (
+      !hasHomoglyph &&
+      ((cp >= 0x0370 && cp <= 0x03ff) ||
+        (cp >= 0x0400 && cp <= 0x04ff) ||
+        (cp >= 0x1d400 && cp <= 0x1d7ff) ||
+        (cp >= 0xff21 && cp <= 0xff3a) ||
+        (cp >= 0xff41 && cp <= 0xff5a))
+    ) {
+      hasHomoglyph = true;
+    }
+    if (hasAscii && hasHomoglyph) return true;
+  }
+  return false;
 }
 
 function clipMixed(text: string, run: string): string {
