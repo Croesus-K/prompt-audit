@@ -5,6 +5,7 @@ import { extractFromJson, extractFromMarkdown } from "./extract.js";
 import { RULES, checkMcpShadow, sortFindings } from "./rules/index.js";
 import { checkMcpDrift, loadBaseline } from "./rules/mcp-drift.js";
 import { readGitChanges, isOnAddedLines, type GitChanges } from "./gitscan.js";
+import { loadAllowConfig, isAllowed } from "./allowlist.js";
 
 export interface ScanOptions {
   /** 忽略的规则 id（--ignore，可重复） */
@@ -67,6 +68,21 @@ export function scan(root: string, opts: ScanOptions = {}): ScanResult {
     if (baseline) findings.push(...checkMcpDrift(shadowResult, baseline));
   }
 
+  // 豁免机制（M0 #3）：仓库根 .prompt-audit.json 的 allow 段。
+  // 规则仍然跑、告警仍然产生，命中 (path, ruleId) 的丢弃——与 --ignore 维度正交：
+  // --ignore 是「这条规则全仓库关停」，allow 是「这条规则在这条路径上放过」。
+  const allowLoad = loadAllowConfig(absRoot);
+  let allowedCount = 0;
+  if (allowLoad.config.allow.length > 0) {
+    const kept: Finding[] = [];
+    for (const f of findings) {
+      if (isAllowed(allowLoad.config, f.file, f.ruleId)) allowedCount++;
+      else kept.push(f);
+    }
+    findings.length = 0;
+    findings.push(...kept);
+  }
+
   const result: ScanResult = {
     root: absRoot,
     filesScanned: filesScanned.sort(),
@@ -74,6 +90,9 @@ export function scan(root: string, opts: ScanOptions = {}): ScanResult {
     findings: sortFindings(findings),
     ignoredRules: [...ignored],
   };
+  if (allowLoad.path) {
+    result.allowConfig = { path: allowLoad.path, allowedFindings: allowedCount };
+  }
 
   if (opts.git) {
     const changes = opts.gitChanges ?? readGitChanges(absRoot);

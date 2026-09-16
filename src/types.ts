@@ -65,6 +65,13 @@ export interface ScanResult {
   findings: Finding[];
   /** 被显式忽略的规则 id（--ignore） */
   ignoredRules: string[];
+  /** 加载到的豁免配置文件 + 被过滤掉的告警条数（缺省 = 未加载配置） */
+  allowConfig?: {
+    /** 配置文件绝对路径（仅在加载到时存在） */
+    path: string;
+    /** 被 allow 段豁免掉的告警条数（用于审计留痕） */
+    allowedFindings: number;
+  };
   /** --git 模式信息（diff 驱动：只报新增行） */
   git?: {
     changedFiles: string[];

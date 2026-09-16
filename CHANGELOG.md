@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.2.0（2026-09-16）
+
+M0 遗留收官：豁免机制（#3）。引入路径级 allow 段，替代「全规则关停」的粗变通——「这条规则在这条路径上放过」与 `--ignore <ruleId>` 全仓库关停正交。
+
+### 新增特性
+
+- `.prompt-audit.json` 仓库根配置文件（`allow` 段）：`[{ path: string, rules?: string[] }]`——命中 `path` glob 的资产，在 `rules` 列出的规则上免于告警（`rules` 缺省即该路径下放行全部规则）
+- 零依赖 glob 引擎（`src/glob.ts`）：`**` / `*` / `?` 三种通配，锚定路径段，移植自 bounty-guard 已实战验证实现
+- 报告渲染新增「豁免配置」行：`豁免配置：<path>`（命中豁免 N 条）——零命中或不配置时显式「无」，不静默
+- `--ignore <ruleId>` 行为不变：仍为规则级全仓库关停，与 allow 段正交叠加
+
+### 配置语义
+
+- allow 是**白名单**（命中则免），不是黑名单（命中则告警）；与 `--ignore` 维度互补而非重复
+- `path` 走仓库相对路径，正斜杠分隔；隐式锚定仓库根（`levels/**` 匹配 `levels/L1.json`、不匹配 `tools/levels/x.json`）
+- `rules` 为 rule id 字符串数组；缺省即「放行全部规则」；id 不存在时配置校验失败（loud-fail，仿 `.bountyrc.json`）
+
+### InjectArena 迁移
+
+- 移除 `ignore: 'sp-secret-embed'`（粗变通，单规则全仓库关停）
+- 新增 `.prompt-audit.json`：`{ allow: [{ path: "levels/**", rules: ["sp-secret-embed"] }] }`——关卡机制下密令内嵌是预期告警，非误报
+- 其余规则（td-injection-phrase / td-exfil-pair 等）继续按设计门禁关停：L4/L5/L6 关卡存在这些模式是教学样本，应有红灯
+
+### 验收
+
+- 测试 117 → 135（+18：glob 引擎 11 + allowlist 加载 7 + scanner 端到端 6，正反用例 + 边缘 glob + 与 `--ignore` 正交）
+- dogfood 双靶：InjectArena 6 条 sp-secret-embed 全豁免 / 5 条关卡预期告警照常 / bounty-guard 0 告警零回归
+- TypeScript：`tsc --noEmit` 干净通过
+- M0 遗留清单销号 #3
+
 ## 0.1.1（2026-09-08）
 
 M1 规则包收官：7 → 10 条，补上 mcp.json 结构化盲区。npm 上架后首个增量版本。

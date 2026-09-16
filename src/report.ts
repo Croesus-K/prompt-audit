@@ -21,6 +21,13 @@ export function renderMarkdown(result: ScanResult, opts: RenderOptions = {}): st
   lines.push(`- 检出资产：${result.assets.length} 个`);
   lines.push(`- 忽略规则：${result.ignoredRules.length ? result.ignoredRules.join(", ") : "无"}`);
   lines.push(
+    `- 豁免配置：${
+      result.allowConfig
+        ? `\`${result.allowConfig.path}\`（命中豁免 ${result.allowConfig.allowedFindings} 条）`
+        : "无（仓库根未发现 .prompt-audit.json）"
+    }`,
+  );
+  lines.push(
     `- 告警：**${result.findings.length} 条**（高危 ${bySeverity("high")} / 中危 ${bySeverity("medium")} / 低危 ${bySeverity("low")}）`,
   );
   lines.push("");
