@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.3.0（2026-XX-XX）
+
+两条新规则覆盖 v0.2.0 留下的两个攻击面盲区，allow 段升级为「内容级精确豁免」，新增两个开发者友好子命令。
+
+### 新增规则（2 条）
+
+- `td-missing-schema`（中危）——工具定义缺少 `parameters`/`inputSchema`。结构性检查：`obj.parameters` 与 `obj.inputSchema` 同时缺失 → 告警。MCP/A2A 生态普遍要求工具带 schema 才能安全调用；缺 schema 的工具一旦暴露给模型，攻击者可诱导模型用任意参数调用，等价于给了模型一个无形状的 API 入口
+- `td-tool-binding`（高危）——工具描述硬编码「调用其他工具」或绑死参数内容。4 条正则覆盖 zh/en：用户意图→工具调用、串调其他工具、硬编码强制串调、绑死工具参数内容。典型泄露：「你必须先用 search_tool 检索 X、再用本工具提交」、「把上一轮的输出原样作为参数」。模型读到这些描述即被编排跨工具链路，注入点面乘积放大
+
+### allow 段升级：内容级精确豁免
+
+- `allow[i].content?: { regex: string, assetKind?: AssetKind, keyPathPrefix?: string }`
+- 在 path+rules 命中之后，再对**finding evidence**（命中片段+少量上下文）做正则匹配 + 范围过滤
+- 关键语义：按 evidence 而非 asset.text 匹配——同一资产上多条发现只豁免 evidence 命中的那一条，保留同文件同规则的其它告警
+- 加载期校验 regex（避免扫描期才抛错）；assetKind 限定为已知 AssetKind；keyPathPrefix 限定 keyPath 前缀
+- 典型用例：关卡 `levels/**` 上放行「演练 `FLAG{OPEN-9921}`」的真演练字段，但保留同路径真密钥形态告警
+
+### 新增子命令（2 个）
+
+- `prompt-audit init-hooks [--target <dir>] [--fail-on <sev>] [--force]`
+  - 在 `<target>/.git/hooks/pre-commit` 装轻量门禁
+  - hook 内容：取 staged 文件 → 跑 `prompt-audit scan <staged> --fail-on <sev>` → exit 1 即阻提交
+  - 既有 hook 存在时拒绝覆盖（除非 `--force`）；chmod 0o755
+  - 无认证 / 无远端调用：纯本地 dogfood 工具
+- `prompt-audit serve [path] [--host <addr>] [--port <n>]`
+  - 起本地 Web 仪表盘（默认 `127.0.0.1:7481`）
+  - 路由：`/`（HTML 总览）、`/scan.json`、`/findings.json`、`/assets.json`、`/allow.json`
+  - 零依赖（Node 内置 http + 内联 HTML 模板）
+  - 单用户 dogfood 设计：默认绑 loopback、不写盘、不联网
+
+### 配置语义
+
+- `--ignore <ruleId>` 仍是规则级全仓库关停；allow 现在可做到「内容级单点豁免」
+- content 段缺省 → 维持 v0.2.0 行为（仅按 path×ruleId 豁免）
+- content 段存在但 asset/evidence 不可得 → 保守失败（不豁免）
+
+### 验收
+
+- 测试 135 → 172（+37：td-missing-schema 5 + td-tool-binding 6 + content 段加载/校验/匹配 7 + scanner 端到端 1 + isAllowed 单元 3 + init-hooks 单元 6 + hook 端到端 2 + serve 仪表盘 7）
+- dogfood 双靶：InjectArena 5 条关卡预期告警照常 / 0 误报回归；用演练 flag 正则替换原 allow 后仍豁免 6 条 / 5 条；serve 仪表盘 200 OK + findings.json 正确反映 5 条 td-* 告警
+- TypeScript：`tsc --noEmit` 干净通过
+
 ## 0.2.0（2026-09-16）
 
 M0 遗留收官：豁免机制（#3）。引入路径级 allow 段，替代「全规则关停」的粗变通——「这条规则在这条路径上放过」与 `--ignore <ruleId>` 全仓库关停正交。

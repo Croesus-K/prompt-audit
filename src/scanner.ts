@@ -53,10 +53,16 @@ export function scan(root: string, opts: ScanOptions = {}): ScanResult {
   const ignored = new Set(opts.ignoredRules ?? []);
   const activeRules = RULES.filter((r) => !ignored.has(r.id));
   const findings: Finding[] = [];
+  // finding → 产它的资产（用于 v0.3.0 起 allow.content 的内容匹配）
+  const findingAsset: Array<{ f: Finding; a: Asset }> = [];
   for (const rule of activeRules) {
     for (const asset of assets) {
       if (!rule.appliesTo.includes(asset.kind)) continue;
-      findings.push(...rule.check(asset));
+      const out = rule.check(asset);
+      for (const f of out) {
+        findings.push(f);
+        findingAsset.push({ f, a: asset });
+      }
     }
   }
   const shadowResult: ScanResult = { root: absRoot, filesScanned, assets, findings: [], ignoredRules: [...ignored] };
@@ -69,14 +75,16 @@ export function scan(root: string, opts: ScanOptions = {}): ScanResult {
   }
 
   // 豁免机制（M0 #3）：仓库根 .prompt-audit.json 的 allow 段。
-  // 规则仍然跑、告警仍然产生，命中 (path, ruleId) 的丢弃——与 --ignore 维度正交：
-  // --ignore 是「这条规则全仓库关停」，allow 是「这条规则在这条路径上放过」。
+  // 规则仍然跑、告警仍然产生，命中 (path, ruleId, content) 的丢弃——与 --ignore 维度正交：
+  // --ignore 是「这条规则全仓库关停」，allow 是「这条规则在这条路径上放过」
+  // （v0.3.0 起可附加 content 字段做内容级精确豁免）。
   const allowLoad = loadAllowConfig(absRoot);
   let allowedCount = 0;
   if (allowLoad.config.allow.length > 0) {
     const kept: Finding[] = [];
-    for (const f of findings) {
-      if (isAllowed(allowLoad.config, f.file, f.ruleId)) allowedCount++;
+    for (let i = 0; i < findings.length; i++) {
+      const { f, a } = findingAsset[i];
+      if (isAllowed(allowLoad.config, f.file, f.ruleId, a, f.evidence)) allowedCount++;
       else kept.push(f);
     }
     findings.length = 0;

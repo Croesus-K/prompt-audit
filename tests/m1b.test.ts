@@ -130,8 +130,8 @@ describe("sp-exfil-instruction", () => {
 });
 
 describe("规则注册", () => {
-  it("规则总数达 10（M1 目标 8–10 收官）", () => {
-    expect(RULES.length).toBe(8);
+  it("规则总数达 10（M1 目标 8–10 收官；v0.3.0 起扩到 10 含 td-missing-schema / td-tool-binding）", () => {
+    expect(RULES.length).toBe(10);
   });
 
   it("新规则 id 唯一", () => {

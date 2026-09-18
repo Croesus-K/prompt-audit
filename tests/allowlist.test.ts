@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { matchGlob } from "../src/glob.js";
 import { loadAllowConfig, isAllowed, EMPTY_ALLOW_CONFIG, CONFIG_FILENAME } from "../src/allowlist.js";
+import type { Asset, AssetKind } from "../src/types.js";
 
 describe("matchGlob（零依赖 glob）", () => {
   it("** 跨目录段：levels/** 命中多层与零层目录", () => {
@@ -110,6 +111,42 @@ describe("loadAllowConfig", () => {
     writeFileSync(join(tmp, CONFIG_FILENAME), JSON.stringify({ allow: [{ path: "x/**", rules: [""] }] }));
     expect(() => loadAllowConfig(tmp)).toThrow(/rules\[0\] 必须是字符串/);
   });
+
+  it("content 段合法：regex + 可选 assetKind/keyPathPrefix", () => {
+    writeFileSync(join(tmp, CONFIG_FILENAME), JSON.stringify({
+      allow: [
+        {
+          path: "levels/**",
+          rules: ["sp-secret-embed"],
+          content: { regex: "^FLAG\\{L[0-9]+-[0-9a-f]+\\}$", assetKind: "system-prompt" },
+        },
+      ],
+    }));
+    const r = loadAllowConfig(tmp);
+    expect(r.config.allow[0].content?.regex).toBe("^FLAG\\{L[0-9]+-[0-9a-f]+\\}$");
+    expect(r.config.allow[0].content?.assetKind).toBe("system-prompt");
+  });
+
+  it("content.regex 不合法 → 加载期抛错（绝不让扫描期才失败）", () => {
+    writeFileSync(join(tmp, CONFIG_FILENAME), JSON.stringify({
+      allow: [{ path: "x/**", content: { regex: "(unclosed" } }],
+    }));
+    expect(() => loadAllowConfig(tmp)).toThrow(/不是合法正则/);
+  });
+
+  it("content.regex 空字符串 → 抛错（强制配置方提供正则）", () => {
+    writeFileSync(join(tmp, CONFIG_FILENAME), JSON.stringify({
+      allow: [{ path: "x/**", content: { regex: "" } }],
+    }));
+    expect(() => loadAllowConfig(tmp)).toThrow(/content\.regex 必填/);
+  });
+
+  it("content.assetKind 非法 → 抛错", () => {
+    writeFileSync(join(tmp, CONFIG_FILENAME), JSON.stringify({
+      allow: [{ path: "x/**", content: { regex: "x", assetKind: "bogus" } }],
+    }));
+    expect(() => loadAllowConfig(tmp)).toThrow(/assetKind 必须是已知/);
+  });
 });
 
 describe("isAllowed", () => {
@@ -141,5 +178,86 @@ describe("isAllowed", () => {
     expect(isAllowed(config, "levels/a.md", "sp-secret-embed")).toBe(true);
     expect(isAllowed(config, "levels/a.md", "td-injection-phrase")).toBe(false);
     expect(isAllowed(config, "docs/readme.md", "td-injection-phrase")).toBe(true);
+  });
+
+  // —— v0.3.0 起：content 内容级精确豁免 ——
+  // 用法：path + rules 已经决定「在该路径上这些规则可豁免」，再加 content 后
+  // 还要「资产文本命中 content.regex」才真的豁免。
+  // 典型：levels/** 上只豁免「演练 FLAG{...}」的真演练字段；保留同路径上
+  // 出现的真密钥形态告警。
+
+  function mkAsset(text: string, kind: AssetKind = "system-prompt", keyPath = "L1.systemPrompt"): Asset {
+    return { kind, file: "levels/L1.json", line: 1, keyPath, text };
+  }
+
+  it("content 命中 → 豁免", () => {
+    const config = {
+      allow: [{
+        path: "levels/**",
+        rules: ["sp-secret-embed"],
+        content: { regex: "^FLAG\\{[A-Z][0-9]+-[0-9a-f]+\\}$" },
+      }],
+    };
+    expect(isAllowed(config, "levels/L1.json", "sp-secret-embed", mkAsset("FLAG{L1-7f3a9c2e}"), "FLAG{L1-7f3a9c2e}")).toBe(true);
+  });
+
+  it("content 按 evidence 匹配：同 asset 上 evidence A 命中、evidence B 不命中 → 仅豁免 A", () => {
+    const config = {
+      allow: [{
+        path: "levels/**",
+        rules: ["sp-secret-embed"],
+        content: { regex: "^FLAG\\{OPEN-\\d+\\}$" },
+      }],
+    };
+    const asset = mkAsset("演练 FLAG{OPEN-9921} 与真密钥 ghp_RealSecret1234567890AbCdEf");
+    expect(isAllowed(config, "levels/L1.json", "sp-secret-embed", asset, "FLAG{OPEN-9921}")).toBe(true);
+    expect(isAllowed(config, "levels/L1.json", "sp-secret-embed", asset, "ghp_RealSecret1234567890AbCdEf")).toBe(false);
+  });
+
+  it("content 不命中 → 不豁免（同文件同规则但文本不是演练 flag）", () => {
+    const config = {
+      allow: [{
+        path: "levels/**",
+        rules: ["sp-secret-embed"],
+        content: { regex: "^FLAG\\{[A-Z][0-9]+-[0-9a-f]+\\}$" },
+      }],
+    };
+    expect(isAllowed(config, "levels/L1.json", "sp-secret-embed", mkAsset("ghp_realApiKey1234567890"), "ghp_realApiKey1234567890")).toBe(false);
+  });
+
+  it("content.assetKind 不匹配 → 不豁免", () => {
+    const config = {
+      allow: [{
+        path: "levels/**",
+        rules: ["sp-secret-embed"],
+        content: { regex: "FLAG", assetKind: "system-prompt" },
+      }],
+    };
+    expect(isAllowed(config, "levels/L1.json", "sp-secret-embed", mkAsset("FLAG{L1-x}", "secret-field"), "FLAG{L1-x}")).toBe(false);
+    expect(isAllowed(config, "levels/L1.json", "sp-secret-embed", mkAsset("FLAG{L1-x}", "system-prompt"), "FLAG{L1-x}")).toBe(true);
+  });
+
+  it("content.keyPathPrefix 不匹配 → 不豁免", () => {
+    const config = {
+      allow: [{
+        path: "levels/**",
+        rules: ["sp-secret-embed"],
+        content: { regex: "FLAG", keyPathPrefix: "L1." },
+      }],
+    };
+    expect(isAllowed(config, "levels/L1.json", "sp-secret-embed", mkAsset("FLAG{x}", "system-prompt", "L5.systemPrompt"), "FLAG{x}")).toBe(false);
+    expect(isAllowed(config, "levels/L1.json", "sp-secret-embed", mkAsset("FLAG{x}", "system-prompt", "L1.systemPrompt"), "FLAG{x}")).toBe(true);
+  });
+
+  it("content 存在但 asset 缺省（v0.2 旧调用方式） → 不豁免（保守失败）", () => {
+    const config = {
+      allow: [{
+        path: "levels/**",
+        rules: ["sp-secret-embed"],
+        content: { regex: "FLAG" },
+      }],
+    };
+    // 不传 asset → 不豁免（让显式 content 必须配 asset 才有意义）
+    expect(isAllowed(config, "levels/L1.json", "sp-secret-embed")).toBe(false);
   });
 });

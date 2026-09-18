@@ -2,6 +2,8 @@ import type { Finding, Rule, ScanResult } from "../types.js";
 import { tdInjectionPhrase } from "./td-injection-phrase.js";
 import { tdHiddenUnicode } from "./td-hidden-unicode.js";
 import { tdExfilPair } from "./td-exfil-pair.js";
+import { tdMissingSchema } from "./td-missing-schema.js";
+import { tdToolBinding } from "./td-tool-binding.js";
 import { spSecretEmbed } from "./sp-secret-embed.js";
 import { spOverrideWeak } from "./sp-override-weak.js";
 import { mcpEnvCredential } from "./mcp-env-credential.js";
@@ -13,6 +15,8 @@ export const RULES: Rule[] = [
   tdInjectionPhrase,
   tdHiddenUnicode,
   tdExfilPair,
+  tdMissingSchema,
+  tdToolBinding,
   spSecretEmbed,
   spOverrideWeak,
   mcpEnvCredential,

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { writeFileSync, readFileSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, mkdirSync, chmodSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve, join } from "node:path";
 import { scan, ALL_RULE_IDS } from "./scanner.js";
@@ -8,6 +8,7 @@ import { exportCorpus } from "./corpus.js";
 import { writeBaseline } from "./rules/mcp-drift.js";
 import { renderPrComment, gateExit } from "./pr-comment.js";
 import { upsertStickyComment, toAnnotations, resolvePrNumber } from "./github.js";
+import { startServe } from "./serve.js";
 import type { Severity } from "./types.js";
 import {
   runRegression, compareBaseline, loadBaselineFile, mergeBaseline, levelFilesFromChanges, loadLevel,
@@ -28,6 +29,8 @@ const USAGE = `prompt-audit —— AI 层安全审计（提示注入扫描 / MCP
   prompt-audit export-corpus <path...> [选项]
   prompt-audit pr-comment [path] [选项]     GitHub Action 内：粘性评论 + 门禁
   prompt-audit regression <repoRoot> [选项] M3 回归门禁：改守阵者 prompt 先过注入回归
+  prompt-audit init-hooks [选项]           在 .git/hooks/pre-commit 装轻量门禁
+  prompt-audit serve [path] [选项]         起本地 Web 仪表盘（默认 127.0.0.1:7481）
   prompt-audit list-rules
 
 scan 选项：
@@ -65,6 +68,15 @@ regression 选项（成本闸：试考小样 + 条数上限 + 令牌桶限流；
   --update-baseline <file>  写基线（只升不降；降需 --allow-lower）
   --allow-lower        显式允许把基线跑低（审计留痕）
   --ndjson             NDJSON 流式进度（result / surface / report）
+
+init-hooks 选项（在当前仓库 .git/hooks/pre-commit 装门禁）：
+  --target <dir>       仓库根（默认 cwd；必须含 .git/）
+  --fail-on <sev>      门禁等级（默认 high）
+  --force              覆盖既有 pre-commit hook
+
+serve 选项（本地 Web 仪表盘）：
+  --host <addr>        监听地址（默认 127.0.0.1，绑 loopback 不外暴）
+  --port <n>           监听端口（默认 7481）
 
 规则：${ALL_RULE_IDS.join(", ")}`;
 
@@ -365,6 +377,78 @@ async function main(): Promise<number> {
       console.error(`# ${total} 条候选样本（${corpus.status}）；用 --out <file> 落盘`, );
     }
     return 0;
+  }
+
+  if (cmd === "init-hooks") {
+    let target = process.cwd();
+    let failOn: Severity = "high";
+    let force = false;
+    for (let i = 0; i < rest.length; i++) {
+      const a = rest[i];
+      switch (a) {
+        case "--target": target = resolve(rest[++i]); break;
+        case "--fail-on": failOn = parseFailOn(rest[++i]); break;
+        case "--force": force = true; break;
+        default:
+          if (a.startsWith("--")) throw new Error(`未知选项：${a}`);
+      }
+    }
+    const hooksDir = join(target, ".git", "hooks");
+    if (!existsSync(hooksDir)) {
+      console.error(`未找到 ${hooksDir}（--target 必须是 git 工作树）`);
+      return 2;
+    }
+    const hookPath = join(hooksDir, "pre-commit");
+    if (existsSync(hookPath) && !force) {
+      console.error(`pre-commit hook 已存在：${hookPath}（用 --force 覆盖）`);
+      return 1;
+    }
+    // 钩子尽量精简：只审 staged 文件，npx 找不到二进制则尝试本地 node_modules/.bin
+    const script = `#!/usr/bin/env sh
+# Installed by prompt-audit v${version}. To uninstall: rm ${hookPath}
+set -e
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$STAGED" ] && exit 0
+if command -v prompt-audit >/dev/null 2>&1; then
+  prompt-audit scan $STAGED --fail-on ${failOn}
+else
+  npx --yes prompt-audit scan $STAGED --fail-on ${failOn}
+fi
+`;
+    writeFileSync(hookPath, script, { encoding: "utf8" });
+    chmodSync(hookPath, 0o755);
+    console.error(`已安装 pre-commit hook：${hookPath}（门禁：--fail-on ${failOn}）`);
+    return 0;
+  }
+
+  if (cmd === "serve") {
+    let root = process.cwd();
+    let host = "127.0.0.1";
+    let port = 7481;
+    for (let i = 0; i < rest.length; i++) {
+      const a = rest[i];
+      switch (a) {
+        case "--host": host = rest[++i]; break;
+        case "--port": port = Number(rest[++i]); break;
+        default:
+          if (a.startsWith("--")) throw new Error(`未知选项：${a}`);
+          root = resolve(a);
+      }
+    }
+    try {
+      const { server, port: actualPort } = await startServe({ root, host, port, version });
+      console.error(`prompt-audit 仪表盘已起：http://${host}:${actualPort}/（Ctrl-C 退出）`);
+      // 阻塞主进程直到用户按 Ctrl-C
+      await new Promise<void>((resolveP) => {
+        server.on("close", () => resolveP());
+        process.once("SIGINT", () => { server.close(); });
+        process.once("SIGTERM", () => { server.close(); });
+      });
+      return 0;
+    } catch (e) {
+      console.error(`启动失败：${(e as Error).message}`);
+      return 1;
+    }
   }
 
   console.error(USAGE);

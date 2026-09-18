@@ -101,4 +101,27 @@ describe("scanner × allowlist（#3 豁免机制）", () => {
     expect(withConfig.allowConfig).toBeDefined();
     expect(withConfig.allowConfig?.allowedFindings).toBeGreaterThanOrEqual(1);
   });
+
+  // —— v0.3.0 起 allow.content 端到端集成 ——
+  // 关卡文件里既有演练 FLAG{OPEN-9921}（应豁免），也含真密钥形态
+  // 字符串（不该豁免，content 正则不命中）。
+
+  it("allow.content 命中演练 flag → 豁免；真密钥形态 → 不豁免（同一文件同一规则）", () => {
+    writeFileSync(join(tmp, "levels/intro.json"), JSON.stringify({
+      systemPrompt: "演练码 FLAG{OPEN-9921}。同时夹一个真密钥 ghp_RealSecret1234567890AbCdEfXyZwqPqrSt 验证不被误放。",
+    }));
+    writeFileSync(join(tmp, ".prompt-audit.json"), JSON.stringify({
+      allow: [{
+        path: "levels/**",
+        rules: ["sp-secret-embed"],
+        content: { regex: "FLAG\\{OPEN-\\d+\\}", assetKind: "system-prompt" },
+      }],
+    }));
+    const r = scan(tmp);
+    const levelFindings = r.findings.filter((f) => f.file.startsWith("levels/") && f.ruleId === "sp-secret-embed");
+    const evidences = levelFindings.map((f) => f.evidence);
+    // 演练 FLAG 被 content 命中 → 豁免；真密钥 ghp_... 不被 content 命中 → 仍告警
+    expect(evidences.some((e) => /FLAG\{OPEN-9921\}/.test(e))).toBe(false);
+    expect(evidences.some((e) => /ghp_/.test(e))).toBe(true);
+  });
 });
