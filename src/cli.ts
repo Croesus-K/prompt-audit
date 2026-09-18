@@ -415,7 +415,8 @@ else
   npx --yes prompt-audit scan $STAGED --fail-on ${failOn}
 fi
 `;
-    writeFileSync(hookPath, script, { encoding: "utf8" });
+    // sh 脚本对 \r 敏感（shebang 会变成 `env sh\r`），Windows 检出下本文件源码是 CRLF，写盘前必须归一为 LF
+    writeFileSync(hookPath, script.replace(/\r\n/g, "\n"), { encoding: "utf8" });
     chmodSync(hookPath, 0o755);
     console.error(`已安装 pre-commit hook：${hookPath}（门禁：--fail-on ${failOn}）`);
     return 0;
