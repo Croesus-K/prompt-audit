@@ -404,11 +404,16 @@ async function main(): Promise<number> {
       return 1;
     }
     // 钩子尽量精简：只审 staged 文件，npx 找不到二进制则尝试本地 node_modules/.bin
+    // $STAGED 是换行分隔的文件名列表：IFS 置为仅换行 + set -f 关 glob，
+    // 让裸展开只按行切分——文件名含空格或 * 不再被词分裂/通配（遗留 #15）
     const script = `#!/usr/bin/env sh
 # Installed by prompt-audit v${version}. To uninstall: rm ${hookPath}
 set -e
 STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
 [ -z "$STAGED" ] && exit 0
+IFS='
+'
+set -f
 if command -v prompt-audit >/dev/null 2>&1; then
   prompt-audit scan $STAGED --fail-on ${failOn}
 else

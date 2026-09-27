@@ -22,6 +22,23 @@ function runHookScript(hookPath: string, cwd: string): { status: number; stdout:
 }
 
 describe("pre-commit hook 调用 prompt-audit 的真实门禁", () => {
+  it("生成脚本含 $STAGED 词分裂防护（IFS 仅换行 + set -f，遗留 #15）", () => {
+    const repo = mkdtempSync(join(tmpdir(), "pa-hook-guard-"));
+    mkdirSync(join(repo, ".git/hooks"), { recursive: true });
+    spawnSync(process.execPath, [CLI, "init-hooks"], { cwd: repo });
+    const hookText = readFileSync(join(repo, ".git/hooks/pre-commit"), "utf8");
+    // IFS 必须在 scan 之前置为仅换行，且展开前关闭 glob——文件名含空格/星号才不会被切碎
+    const ifsAt = hookText.indexOf("IFS='\n'");
+    const setF = hookText.indexOf("set -f");
+    const scanAt = hookText.indexOf("prompt-audit scan $STAGED");
+    expect(ifsAt).toBeGreaterThan(-1);
+    expect(setF).toBeGreaterThan(ifsAt);
+    expect(scanAt).toBeGreaterThan(setF);
+    // 写盘必须已归一为 LF（CRLF 会让 shebang 变 env sh\r）
+    expect(hookText.includes("\r")).toBe(false);
+    rmSync(repo, { recursive: true, force: true });
+  }, 10000);
+
   it("hook --fail-on high 命中工具描述里的注入模式 → exit 1", () => {
     const repo = mkdtempSync(join(tmpdir(), "pa-hook-e2e-"));
     mkdirSync(join(repo, ".git/hooks"), { recursive: true });
